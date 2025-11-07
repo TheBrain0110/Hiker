@@ -10,57 +10,89 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query(sort: \Client.ownerName) private var clients: [Client]
+    @Query(sort: \Dog.name) private var dogs: [Dog]
+    @Query private var hikingLocations: [HikingLocation]
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+                Section("Happy Hound Hikes") {
+                    HStack {
+                        Image(systemName: "pawprint.fill")
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading) {
+                            Text("Welcome to Happy Hound Hikes")
+                                .font(.headline)
+                            Text("\(clients.count) clients • \(dogs.count) dogs • \(hikingLocations.count) trails")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .onDelete(perform: deleteItems)
-            }
-#if os(macOS)
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-#endif
-            .toolbar {
-#if os(iOS)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-#endif
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
+
+                if clients.isEmpty {
+                    Section {
+                        Button(action: loadSampleData) {
+                            Label("Load Sample Data", systemImage: "square.and.arrow.down")
+                        }
+                    }
+                } else {
+                    Section("Clients & Dogs") {
+                        ForEach(clients) { client in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(client.ownerName)
+                                    .font(.headline)
+                                if !client.dogs.isEmpty {
+                                    Text(client.dogs.map { $0.name }.joined(separator: ", "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+
+                    Section("Hiking Locations") {
+                        ForEach(hikingLocations) { location in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(location.name)
+                                    .font(.headline)
+                                Text(location.region)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Section {
+                        Button(role: .destructive, action: clearAllData) {
+                            Label("Clear All Data", systemImage: "trash")
+                        }
                     }
                 }
             }
-        } detail: {
-            Text("Select an item")
+            .navigationTitle("Hiker")
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+    private func loadSampleData() {
+        Task { @MainActor in
+            SampleData.createSampleData(in: modelContext)
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+    private func clearAllData() {
+        Task { @MainActor in
+            try? modelContext.delete(model: Client.self)
+            try? modelContext.delete(model: Dog.self)
+            try? modelContext.delete(model: Payment.self)
+            try? modelContext.delete(model: ScheduleException.self)
+            try? modelContext.delete(model: HikingLocation.self)
         }
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: Client.self, inMemory: true)
 }
