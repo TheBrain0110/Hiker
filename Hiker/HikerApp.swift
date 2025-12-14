@@ -15,7 +15,7 @@ struct HikerApp: App {
             Client.self,
             Dog.self,
             Payment.self,
-            ScheduleException.self,
+            ScheduleOverride.self,
             HikingLocation.self,
         ])
 

@@ -17,7 +17,7 @@ class SampleData {
         try? context.delete(model: Client.self)
         try? context.delete(model: Dog.self)
         try? context.delete(model: Payment.self)
-        try? context.delete(model: ScheduleException.self)
+        try? context.delete(model: ScheduleOverride.self)
         try? context.delete(model: HikingLocation.self)
 
         // Create hiking locations in Halifax area

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import MapKit
 
 struct HikeCard: View {
@@ -42,7 +43,7 @@ struct HikeCard: View {
                 }
             }
         }
-        .background(Color(.systemBackground))
+        .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
     }
@@ -57,7 +58,7 @@ struct HikeCard: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
 
-                    Text("\(hike.dogCount) dogs • \(hike.totalDistance.kilometersFormatted)")
+                    Text("\(hike.dogCount) dogs • \(String(format: "%.1f km", hike.totalDistance / 1000))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

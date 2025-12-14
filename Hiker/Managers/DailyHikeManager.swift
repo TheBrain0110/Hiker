@@ -3,6 +3,7 @@
 //  Hiker
 //
 //  Created by Claude on 11/7/25.
+//  Refactored by Gemini on 12/14/25.
 //
 
 import Foundation
@@ -10,7 +11,7 @@ import SwiftData
 import CoreLocation
 
 /// Manages daily hike schedules by computing which dogs should be picked up
-/// based on their regular schedules and any exceptions for the week
+/// based on their regular schedules and daily overrides.
 @MainActor
 class DailyHikeManager {
 
@@ -26,7 +27,11 @@ class DailyHikeManager {
     func dailySchedule(for date: Date = Date()) -> DailyHike {
         // Get the day of week
         guard let dayOfWeek = date.dayOfWeek else {
-            // Weekend - no hikes
+            // Weekend - no hikes (unless explicitly overridden? For MVP assume no hikes on weekends normally)
+            // But if we support overrides for weekends, we should check them. 
+            // For now, let's strictly follow the rule: "No regular hikes on weekends", 
+            // but if there's an Override(.isPresent), we should probably allow it.
+            // Let's assume standard logic first.
             return DailyHike(date: date, hikes: [])
         }
 
@@ -51,69 +56,46 @@ class DailyHikeManager {
         return DailyHike(date: date, hikes: hikes)
     }
 
-    /// Get all dogs scheduled for a specific week
-    func scheduledDogs(for weekStartDate: Date) -> [DayOfWeek: [Dog]] {
-        var result: [DayOfWeek: [Dog]] = [:]
-
-        for day in DayOfWeek.allCases {
-            let date = weekStartDate.date(for: day)
-            let dogs = getScheduledDogs(for: date, dayOfWeek: day)
-            result[day] = dogs
-        }
-
-        return result
-    }
-
     // MARK: - Private Helpers
 
     /// Get all dogs that should be scheduled for a specific date
     private func getScheduledDogs(for date: Date, dayOfWeek: DayOfWeek) -> [Dog] {
-        // Fetch all active dogs
+        // 1. Fetch all active dogs
         let descriptor = FetchDescriptor<Dog>(
             predicate: #Predicate { $0.isActive == true },
             sortBy: [SortDescriptor(\.name)]
         )
+        guard let allDogs = try? modelContext.fetch(descriptor) else { return [] }
 
-        guard let allDogs = try? modelContext.fetch(descriptor) else {
-            return []
-        }
-
-        // Filter dogs based on regular schedule and exceptions
-        return allDogs.filter { dog in
-            isScheduled(dog: dog, on: date, dayOfWeek: dayOfWeek)
-        }
-    }
-
-    /// Check if a dog is scheduled for a specific date
-    private func isScheduled(dog: Dog, on date: Date, dayOfWeek: DayOfWeek) -> Bool {
-        // First check for exceptions for this week
-        let weekStart = date.startOfWeek
-
-        let exceptionDescriptor = FetchDescriptor<ScheduleException>(
-            predicate: #Predicate<ScheduleException> { exception in
-                exception.dogId == dog.id &&
-                exception.weekStartDate == weekStart
-            }
+        // 2. Fetch all Overrides for this date
+        // We need to match just the date part (Year-Month-Day).
+        // Since SwiftData predicates on Dates can be tricky with time components, 
+        // we'll fetch a range or filter in memory if the dataset is small.
+        // For 40 dogs, in-memory filtering of today's overrides is fine.
+        
+        let targetStart = Calendar.current.startOfDay(for: date)
+        let targetEnd = Calendar.current.date(byAdding: .day, value: 1, to: targetStart)!
+        
+        let overrideDescriptor = FetchDescriptor<ScheduleOverride>(
+            predicate: #Predicate { $0.date >= targetStart && $0.date < targetEnd }
         )
-
-        if let exceptions = try? modelContext.fetch(exceptionDescriptor),
-           let exception = exceptions.first,
-           let status = exception.status(for: dayOfWeek) {
-            // Exception exists for this day
-            switch status {
-            case .scheduled:
-                return true
-            case .away, .injured, .cancelled:
-                return false
-            case .rescheduled:
-                // For now, treat rescheduled as not scheduled
-                // (proper handling would need to check where it was rescheduled to)
-                return false
-            }
+        let todayOverrides = (try? modelContext.fetch(overrideDescriptor)) ?? []
+        
+        // Map DogID -> OverrideType
+        let overrideMap: [UUID: OverrideType] = todayOverrides.reduce(into: [:]) { dict, override in
+            dict[override.dogId] = override.type
         }
 
-        // No exception - use regular schedule
-        return dog.isScheduledOn(dayOfWeek)
+        // 3. Filter Logic
+        return allDogs.filter { dog in
+            if let type = overrideMap[dog.id] {
+                // If there is an override, follow it
+                return type == .isPresent
+            } else {
+                // If no override, follow default schedule
+                return dog.isScheduledOn(dayOfWeek)
+            }
+        }
     }
 
     /// Group dogs into hikes (max 8 per hike, 2 hikes max)

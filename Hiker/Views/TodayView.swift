@@ -27,7 +27,6 @@ struct TodayView: View {
                 }
             }
             .navigationTitle("Today")
-            .navigationBarTitleDisplayMode(.large)
             .task {
                 await loadSchedule()
             }
@@ -82,7 +81,7 @@ struct TodayView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(12)
     }
 

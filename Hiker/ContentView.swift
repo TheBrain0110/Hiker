@@ -19,8 +19,8 @@ struct ContentView: View {
                     Label("Today", systemImage: "calendar")
                 }
 
-            // Weekly Schedule (placeholder)
-            PlaceholderTab(title: "Weekly", icon: "calendar.day.timeline.left")
+            // Weekly Schedule
+            WeeklyScheduleView()
                 .tabItem {
                     Label("Weekly", systemImage: "calendar.day.timeline.left")
                 }
@@ -104,7 +104,7 @@ struct SettingsView: View {
             try? modelContext.delete(model: Client.self)
             try? modelContext.delete(model: Dog.self)
             try? modelContext.delete(model: Payment.self)
-            try? modelContext.delete(model: ScheduleException.self)
+            try? modelContext.delete(model: ScheduleOverride.self)
             try? modelContext.delete(model: HikingLocation.self)
         }
     }
@@ -145,7 +145,6 @@ struct DataDetailView: View {
             }
         }
         .navigationTitle("All Data")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
