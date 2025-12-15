@@ -30,7 +30,10 @@ struct WeeklyScheduleView: View {
                 List {
                     Section(header: Text("Scheduled for \(selectedDate.formatted(date: .abbreviated, time: .omitted))")) {
                         if scheduledDogs.isEmpty {
-                            ContentUnavailableView("No Dogs Scheduled", systemImage: "pawprint")
+                            ContentUnavailableView(
+                                "No Dogs Scheduled",
+                                systemImage: "pawprint"
+                            )
                         } else {
                             ForEach(scheduledDogs) { dog in
                                 HStack {

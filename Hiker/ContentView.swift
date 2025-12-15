@@ -74,7 +74,7 @@ struct SettingsView: View {
                         Text("Load sample clients, dogs, and hiking locations to test the app.")
                     }
                 } else {
-                    Section("Data") {
+                    Section {
                         NavigationLink {
                             DataDetailView(clients: clients, hikingLocations: hikingLocations)
                         } label: {
@@ -84,6 +84,8 @@ struct SettingsView: View {
                         Button(role: .destructive, action: clearAllData) {
                             Label("Clear All Data", systemImage: "trash")
                         }
+                    } header: {
+                        Text("Data")
                     } footer: {
                         Text("Clear all clients, dogs, payments, schedules, and hiking locations.")
                     }
