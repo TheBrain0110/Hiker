@@ -99,7 +99,7 @@ struct TodayView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color(.secondarySystemBackground))
+        .background(.background.secondary)
         .cornerRadius(12)
     }
 
