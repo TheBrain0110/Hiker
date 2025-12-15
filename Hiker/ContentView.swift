@@ -25,8 +25,8 @@ struct ContentView: View {
                     Label("Weekly", systemImage: "calendar.day.timeline.left")
                 }
 
-            // Clients (placeholder)
-            PlaceholderTab(title: "Clients", icon: "person.2")
+            // Clients
+            ClientsView()
                 .tabItem {
                     Label("Clients", systemImage: "person.2")
                 }
