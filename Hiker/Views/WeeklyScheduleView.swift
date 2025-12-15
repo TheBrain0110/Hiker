@@ -24,7 +24,7 @@ struct WeeklyScheduleView: View {
                 // 1. Week Calendar Strip
                 WeekStrip(selectedDate: $selectedDate)
                     .padding()
-                    .background(Color(nsColor: .controlBackgroundColor))
+                    .background(.background.secondary)
                 
                 // 2. Scheduled Dogs List
                 List {
@@ -51,6 +51,14 @@ struct WeeklyScheduleView: View {
                                     } else if isRescheduled(dog) {
                                         Badge(text: "Rescheduled", color: .orange)
                                     }
+                                    
+                                    Button {
+                                        removeDog(dog)
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(.borderless)
                                 }
                                 .swipeActions {
                                     Button(role: .destructive) {
