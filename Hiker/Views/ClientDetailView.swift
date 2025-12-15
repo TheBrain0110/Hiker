@@ -95,7 +95,9 @@ struct ClientDetailView: View {
             }
         }
         .navigationTitle(client.ownerName)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Edit") {
@@ -250,7 +252,9 @@ struct AddDogView: View {
                         Text("Rate")
                         Spacer()
                         TextField("Rate", value: $paymentRate, format: .currency(code: "CAD"))
+                            #if os(iOS)
                             .keyboardType(.decimalPad)
+                            #endif
                             .multilineTextAlignment(.trailing)
                     }
                 }
@@ -265,7 +269,9 @@ struct AddDogView: View {
                 }
             }
             .navigationTitle("Add Dog")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -322,15 +328,19 @@ struct EditClientView: View {
                         set: { client.phone = $0.isEmpty ? nil : $0 }
                     ))
                     .textContentType(.telephoneNumber)
+                    #if os(iOS)
                     .keyboardType(.phonePad)
+                    #endif
 
                     TextField("Email", text: Binding(
                         get: { client.email ?? "" },
                         set: { client.email = $0.isEmpty ? nil : $0 }
                     ))
                     .textContentType(.emailAddress)
+                    #if os(iOS)
                     .keyboardType(.emailAddress)
                     .autocapitalization(.none)
+                    #endif
                 }
 
                 Section("Address") {
@@ -339,7 +349,9 @@ struct EditClientView: View {
                 }
             }
             .navigationTitle("Edit Client")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

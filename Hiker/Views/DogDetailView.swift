@@ -22,8 +22,10 @@ struct DogDetailView: View {
             }
 
             // Weekly Schedule - This is the key feature
-            Section("Weekly Schedule") {
+            Section {
                 EditableWeeklySchedule(dog: dog)
+            } header: {
+                Text("Weekly Schedule")
             } footer: {
                 Text("Tap days to toggle. Changes save automatically.")
             }
@@ -73,7 +75,9 @@ struct DogDetailView: View {
             }
         }
         .navigationTitle(dog.name)
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Edit") {
@@ -240,7 +244,9 @@ struct EditDogView: View {
                         Text("Rate")
                         Spacer()
                         TextField("Rate", value: $dog.paymentRate, format: .currency(code: "CAD"))
+                            #if os(iOS)
                             .keyboardType(.decimalPad)
+                            #endif
                             .multilineTextAlignment(.trailing)
                     }
                 }
@@ -259,7 +265,9 @@ struct EditDogView: View {
                 }
             }
             .navigationTitle("Edit Dog")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {

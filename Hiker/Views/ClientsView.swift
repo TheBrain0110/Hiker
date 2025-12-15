@@ -185,12 +185,16 @@ struct AddClientView: View {
 
                     TextField("Phone", text: $phone)
                         .textContentType(.telephoneNumber)
+                        #if os(iOS)
                         .keyboardType(.phonePad)
+                        #endif
 
                     TextField("Email", text: $email)
                         .textContentType(.emailAddress)
+                        #if os(iOS)
                         .keyboardType(.emailAddress)
                         .autocapitalization(.none)
+                        #endif
                 }
 
                 Section("Address") {
@@ -199,7 +203,9 @@ struct AddClientView: View {
                 }
             }
             .navigationTitle("New Client")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
