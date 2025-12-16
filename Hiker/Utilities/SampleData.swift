@@ -36,13 +36,17 @@ class SampleData {
             }
         }
 
-        // Create some sample payments
-        let payments = createSamplePayments(for: clientsAndDogs)
-        payments.forEach { context.insert($0) }
-
-        // Create sample completed hikes (for testing historical views)
+        // Create sample completed hikes first (for testing historical views and payment linking)
         let completedHikes = createCompletedHikes(for: clientsAndDogs, locations: locations)
         completedHikes.forEach { context.insert($0) }
+
+        // Create some sample payments linked to completed hikes
+        let payments = createSamplePayments(for: clientsAndDogs, completedHikes: completedHikes)
+        payments.forEach { context.insert($0) }
+
+        // Create some realistic schedule overrides
+        let overrides = createScheduleOverrides(for: clientsAndDogs)
+        overrides.forEach { context.insert($0) }
 
         // Save all changes
         try? context.save()
@@ -91,206 +95,571 @@ class SampleData {
     private static func createClientsAndDogs() -> [Client] {
         var clients: [Client] = []
 
-        // Bedford clients
-        let client1 = Client(
-            ownerName: "Sarah Johnson",
+        // HIKE 1: Bedford Area Dogs
+
+        // Maya - M/W schedule
+        let mayaClient = Client(
+            ownerName: "Maya's Owner",
             phone: "902-555-0101",
-            email: "sarah.j@email.com",
-            address: "123 Bedford Highway, Bedford, NS",
+            email: "maya@email.com",
+            address: "101 Bedford Highway, Bedford, NS",
             latitude: 44.7321,
             longitude: -63.6841
         )
-        let dog1 = Dog(
-            name: "Max",
-            client: client1,
+        let maya = Dog(
+            name: "Maya",
+            client: mayaClient,
             locationLatitude: 44.7321,
             locationLongitude: -63.6841,
-            locationAddress: "123 Bedford Highway, Bedford, NS",
-            regularSchedule: [.monday, .wednesday, .friday],
-            paymentRate: 30.00,
-            notes: "Very energetic, loves water"
-        )
-        client1.dogs = [dog1]
-        clients.append(client1)
-
-        let client2 = Client(
-            ownerName: "Michael Chen",
-            phone: "902-555-0102",
-            email: "mchen@email.com",
-            address: "456 Shore Drive, Bedford, NS",
-            latitude: 44.7412,
-            longitude: -63.6723
-        )
-        let dog2 = Dog(
-            name: "Luna",
-            client: client2,
-            locationLatitude: 44.7412,
-            locationLongitude: -63.6723,
-            locationAddress: "456 Shore Drive, Bedford, NS",
+            locationAddress: "101 Bedford Highway, Bedford, NS",
             regularSchedule: [.monday, .wednesday],
-            paymentRate: 25.00,
-            notes: "Friendly with all dogs"
+            paymentRate: 30.00,
+            notes: "Occasionally adds Friday"
         )
-        let dog3 = Dog(
-            name: "Charlie",
-            client: client2,
-            locationLatitude: 44.7412,
-            locationLongitude: -63.6723,
-            locationAddress: "456 Shore Drive, Bedford, NS",
-            regularSchedule: [.tuesday, .thursday],
-            paymentRate: 25.00,
-            notes: "Senior dog, needs gentle pace"
-        )
-        client2.dogs = [dog2, dog3]
-        clients.append(client2)
+        mayaClient.dogs = [maya]
+        clients.append(mayaClient)
 
-        // Sackville clients
-        let client3 = Client(
-            ownerName: "Emily MacDonald",
+        // Finn - W/F schedule
+        let finnClient = Client(
+            ownerName: "Finn's Owner",
+            phone: "902-555-0102",
+            email: "finn@email.com",
+            address: "102 Shore Drive, Bedford, NS",
+            latitude: 44.7285,
+            longitude: -63.6798
+        )
+        let finn = Dog(
+            name: "Finn",
+            client: finnClient,
+            locationLatitude: 44.7285,
+            locationLongitude: -63.6798,
+            locationAddress: "102 Shore Drive, Bedford, NS",
+            regularSchedule: [.wednesday, .friday],
+            paymentRate: 30.00,
+            notes: "Schedule varies occasionally"
+        )
+        finnClient.dogs = [finn]
+        clients.append(finnClient)
+
+        // Denver - M/W schedule
+        let denverClient = Client(
+            ownerName: "Denver's Owner",
             phone: "902-555-0103",
-            email: "emacdonald@email.com",
-            address: "789 Sackville Drive, Sackville, NS",
+            email: "denver@email.com",
+            address: "103 Rocky Lake Drive, Bedford, NS",
+            latitude: 44.7356,
+            longitude: -63.6823
+        )
+        let denver = Dog(
+            name: "Denver",
+            client: denverClient,
+            locationLatitude: 44.7356,
+            locationLongitude: -63.6823,
+            locationAddress: "103 Rocky Lake Drive, Bedford, NS",
+            regularSchedule: [.monday, .wednesday],
+            paymentRate: 30.00,
+            notes: "Sometimes switches days"
+        )
+        denverClient.dogs = [denver]
+        clients.append(denverClient)
+
+        // Huxley - Thu only
+        let huxleyClient = Client(
+            ownerName: "Huxley's Owner",
+            phone: "902-555-0104",
+            email: "huxley@email.com",
+            address: "104 Bedford Basin Road, Bedford, NS",
+            latitude: 44.7298,
+            longitude: -63.6754
+        )
+        let huxley = Dog(
+            name: "Huxley",
+            client: huxleyClient,
+            locationLatitude: 44.7298,
+            locationLongitude: -63.6754,
+            locationAddress: "104 Bedford Basin Road, Bedford, NS",
+            regularSchedule: [.thursday],
+            paymentRate: 30.00,
+            notes: "Thursday regular"
+        )
+        huxleyClient.dogs = [huxley]
+        clients.append(huxleyClient)
+
+        // Halle - Inactive
+        let halleClient = Client(
+            ownerName: "Halle's Owner",
+            phone: "902-555-0105",
+            email: "halle@email.com",
+            address: "105 Basinview Drive, Bedford, NS",
+            latitude: 44.7334,
+            longitude: -63.6812
+        )
+        let halle = Dog(
+            name: "Halle",
+            client: halleClient,
+            locationLatitude: 44.7334,
+            locationLongitude: -63.6812,
+            locationAddress: "105 Basinview Drive, Bedford, NS",
+            regularSchedule: [],
+            paymentRate: 30.00,
+            notes: "Currently inactive"
+        )
+        halleClient.dogs = [halle]
+        clients.append(halleClient)
+
+        // Jude - M/W schedule
+        let judeClient = Client(
+            ownerName: "Jude's Owner",
+            phone: "902-555-0106",
+            email: "jude@email.com",
+            address: "106 Papermill Lake Drive, Bedford, NS",
+            latitude: 44.7312,
+            longitude: -63.6789
+        )
+        let jude = Dog(
+            name: "Jude",
+            client: judeClient,
+            locationLatitude: 44.7312,
+            locationLongitude: -63.6789,
+            locationAddress: "106 Papermill Lake Drive, Bedford, NS",
+            regularSchedule: [.monday, .wednesday],
+            paymentRate: 30.00,
+            notes: "Sometimes adds Thursday"
+        )
+        judeClient.dogs = [jude]
+        clients.append(judeClient)
+
+        // Navi - T/F schedule
+        let naviClient = Client(
+            ownerName: "Navi's Owner",
+            phone: "902-555-0107",
+            email: "navi@email.com",
+            address: "107 Larry Uteck Boulevard, Bedford, NS",
+            latitude: 44.7389,
+            longitude: -63.6867
+        )
+        let navi = Dog(
+            name: "Navi",
+            client: naviClient,
+            locationLatitude: 44.7389,
+            locationLongitude: -63.6867,
+            locationAddress: "107 Larry Uteck Boulevard, Bedford, NS",
+            regularSchedule: [.tuesday, .friday],
+            paymentRate: 30.00,
+            notes: "Very consistent T/F schedule"
+        )
+        naviClient.dogs = [navi]
+        clients.append(naviClient)
+
+        // HIKE 2: Sackville/Beaver Bank Area Dogs
+
+        // Nala - T/Th schedule
+        let nalaClient = Client(
+            ownerName: "Nala's Owner",
+            phone: "902-555-0108",
+            email: "nala@email.com",
+            address: "201 Sackville Drive, Sackville, NS",
             latitude: 44.7643,
             longitude: -63.6534
         )
-        let dog4 = Dog(
-            name: "Bella",
-            client: client3,
+        let nala = Dog(
+            name: "Nala",
+            client: nalaClient,
             locationLatitude: 44.7643,
             locationLongitude: -63.6534,
-            locationAddress: "789 Sackville Drive, Sackville, NS",
-            regularSchedule: [.monday, .tuesday, .thursday],
-            paymentRate: 30.00,
-            notes: "High energy, needs lots of running"
-        )
-        client3.dogs = [dog4]
-        clients.append(client3)
-
-        let client4 = Client(
-            ownerName: "David Smith",
-            phone: "902-555-0104",
-            email: "dsmith@email.com",
-            address: "234 First Lake Drive, Sackville, NS",
-            latitude: 44.7789,
-            longitude: -63.6412
-        )
-        let dog5 = Dog(
-            name: "Cooper",
-            client: client4,
-            locationLatitude: 44.7789,
-            locationLongitude: -63.6412,
-            locationAddress: "234 First Lake Drive, Sackville, NS",
-            regularSchedule: [.wednesday, .friday],
-            paymentRate: 25.00,
-            notes: "Loves to swim"
-        )
-        let dog6 = Dog(
-            name: "Daisy",
-            client: client4,
-            locationLatitude: 44.7789,
-            locationLongitude: -63.6412,
-            locationAddress: "234 First Lake Drive, Sackville, NS",
-            regularSchedule: [.monday, .wednesday, .friday],
-            paymentRate: 25.00,
-            notes: "Very social, great with other dogs"
-        )
-        client4.dogs = [dog5, dog6]
-        clients.append(client4)
-
-        // Beaver Bank clients
-        let client5 = Client(
-            ownerName: "Jennifer Williams",
-            phone: "902-555-0105",
-            email: "jwilliams@email.com",
-            address: "567 Beaver Bank Road, Beaver Bank, NS",
-            latitude: 44.8234,
-            longitude: -63.5923
-        )
-        let dog7 = Dog(
-            name: "Rocky",
-            client: client5,
-            locationLatitude: 44.8234,
-            locationLongitude: -63.5923,
-            locationAddress: "567 Beaver Bank Road, Beaver Bank, NS",
+            locationAddress: "201 Sackville Drive, Sackville, NS",
             regularSchedule: [.tuesday, .thursday],
             paymentRate: 30.00,
-            notes: "Needs to be picked up last, reactive with unfamiliar dogs initially"
+            notes: "Sometimes adds Friday"
         )
-        client5.dogs = [dog7]
-        clients.append(client5)
+        nalaClient.dogs = [nala]
+        clients.append(nalaClient)
 
-        let client6 = Client(
-            ownerName: "Robert Taylor",
-            phone: "902-555-0106",
-            email: "rtaylor@email.com",
-            address: "890 Windsor Junction Road, Beaver Bank, NS",
-            latitude: 44.8123,
-            longitude: -63.5834
+        // Weski - Thu only
+        let weskiClient = Client(
+            ownerName: "Weski's Owner",
+            phone: "902-555-0109",
+            email: "weski@email.com",
+            address: "202 Beaver Bank Road, Sackville, NS",
+            latitude: 44.7689,
+            longitude: -63.6478
         )
-        let dog8 = Dog(
-            name: "Molly",
-            client: client6,
-            locationLatitude: 44.8123,
-            locationLongitude: -63.5834,
-            locationAddress: "890 Windsor Junction Road, Beaver Bank, NS",
-            regularSchedule: [.monday, .tuesday, .wednesday, .thursday, .friday],
+        let weski = Dog(
+            name: "Weski",
+            client: weskiClient,
+            locationLatitude: 44.7689,
+            locationLongitude: -63.6478,
+            locationAddress: "202 Beaver Bank Road, Sackville, NS",
+            regularSchedule: [.thursday],
+            paymentRate: 30.00,
+            notes: "Thursday regular"
+        )
+        weskiClient.dogs = [weski]
+        clients.append(weskiClient)
+
+        // Cali - Thu schedule
+        let caliClient = Client(
+            ownerName: "Cali's Owner",
+            phone: "902-555-0110",
+            email: "cali@email.com",
+            address: "203 First Lake Drive, Sackville, NS",
+            latitude: 44.7723,
+            longitude: -63.6512
+        )
+        let cali = Dog(
+            name: "Cali",
+            client: caliClient,
+            locationLatitude: 44.7723,
+            locationLongitude: -63.6512,
+            locationAddress: "203 First Lake Drive, Sackville, NS",
+            regularSchedule: [.thursday],
+            paymentRate: 30.00,
+            notes: "Occasionally switches to Tuesday"
+        )
+        caliClient.dogs = [cali]
+        clients.append(caliClient)
+
+        // Loki - F only, $25 rate
+        let lokiClient = Client(
+            ownerName: "Loki's Owner",
+            phone: "902-555-0111",
+            email: "loki@email.com",
+            address: "204 Springfield Lake Road, Sackville, NS",
+            latitude: 44.7756,
+            longitude: -63.6445
+        )
+        let loki = Dog(
+            name: "Loki",
+            client: lokiClient,
+            locationLatitude: 44.7756,
+            locationLongitude: -63.6445,
+            locationAddress: "204 Springfield Lake Road, Sackville, NS",
+            regularSchedule: [.friday],
             paymentRate: 25.00,
-            notes: "Regular 5 days/week, very reliable client"
+            notes: "Friday regular, special rate"
         )
-        client6.dogs = [dog8]
-        clients.append(client6)
+        lokiClient.dogs = [loki]
+        clients.append(lokiClient)
+
+        // Harris - M/W schedule
+        let harrisClient = Client(
+            ownerName: "Harris's Owner",
+            phone: "902-555-0112",
+            email: "harris@email.com",
+            address: "205 Cobequid Road, Sackville, NS",
+            latitude: 44.7612,
+            longitude: -63.6589
+        )
+        let harris = Dog(
+            name: "Harris",
+            client: harrisClient,
+            locationLatitude: 44.7612,
+            locationLongitude: -63.6589,
+            locationAddress: "205 Cobequid Road, Sackville, NS",
+            regularSchedule: [.monday, .wednesday],
+            paymentRate: 30.00,
+            notes: "Regular M/W"
+        )
+        harrisClient.dogs = [harris]
+        clients.append(harrisClient)
+
+        // Lily GR - F only
+        let lilyGRClient = Client(
+            ownerName: "Lily GR's Owner",
+            phone: "902-555-0113",
+            email: "lilygr@email.com",
+            address: "206 Walker Avenue, Sackville, NS",
+            latitude: 44.7678,
+            longitude: -63.6423
+        )
+        let lilyGR = Dog(
+            name: "Lily GR",
+            client: lilyGRClient,
+            locationLatitude: 44.7678,
+            locationLongitude: -63.6423,
+            locationAddress: "206 Walker Avenue, Sackville, NS",
+            regularSchedule: [.friday],
+            paymentRate: 30.00,
+            notes: "Friday regular"
+        )
+        lilyGRClient.dogs = [lilyGR]
+        clients.append(lilyGRClient)
+
+        // Ruthie - F only
+        let ruthieClient = Client(
+            ownerName: "Ruthie's Owner",
+            phone: "902-555-0114",
+            email: "ruthie@email.com",
+            address: "207 Glendale Drive, Sackville, NS",
+            latitude: 44.7734,
+            longitude: -63.6501
+        )
+        let ruthie = Dog(
+            name: "Ruthie",
+            client: ruthieClient,
+            locationLatitude: 44.7734,
+            locationLongitude: -63.6501,
+            locationAddress: "207 Glendale Drive, Sackville, NS",
+            regularSchedule: [.friday],
+            paymentRate: 30.00,
+            notes: "Friday regular"
+        )
+        ruthieClient.dogs = [ruthie]
+        clients.append(ruthieClient)
+
+        // Luna - F only
+        let lunaClient = Client(
+            ownerName: "Luna's Owner",
+            phone: "902-555-0115",
+            email: "luna@email.com",
+            address: "208 Sackville Drive, Sackville, NS",
+            latitude: 44.7598,
+            longitude: -63.6556
+        )
+        let luna = Dog(
+            name: "Luna",
+            client: lunaClient,
+            locationLatitude: 44.7598,
+            locationLongitude: -63.6556,
+            locationAddress: "208 Sackville Drive, Sackville, NS",
+            regularSchedule: [.friday],
+            paymentRate: 30.00,
+            notes: "Friday regular"
+        )
+        lunaClient.dogs = [luna]
+        clients.append(lunaClient)
+
+        // Finn GR - T/Th schedule
+        let finnGRClient = Client(
+            ownerName: "Finn GR's Owner",
+            phone: "902-555-0116",
+            email: "finngr@email.com",
+            address: "209 Beaver Bank Road, Beaver Bank, NS",
+            latitude: 44.8023,
+            longitude: -63.6123
+        )
+        let finnGR = Dog(
+            name: "Finn GR",
+            client: finnGRClient,
+            locationLatitude: 44.8023,
+            locationLongitude: -63.6123,
+            locationAddress: "209 Beaver Bank Road, Beaver Bank, NS",
+            regularSchedule: [.tuesday, .thursday],
+            paymentRate: 30.00,
+            notes: "Very consistent T/Th schedule"
+        )
+        finnGRClient.dogs = [finnGR]
+        clients.append(finnGRClient)
+
+        // Sadie - T/Th schedule
+        let sadieClient = Client(
+            ownerName: "Sadie's Owner",
+            phone: "902-555-0117",
+            email: "sadie@email.com",
+            address: "210 Windsor Junction Road, Beaver Bank, NS",
+            latitude: 44.8156,
+            longitude: -63.6089
+        )
+        let sadie = Dog(
+            name: "Sadie",
+            client: sadieClient,
+            locationLatitude: 44.8156,
+            locationLongitude: -63.6089,
+            locationAddress: "210 Windsor Junction Road, Beaver Bank, NS",
+            regularSchedule: [.tuesday, .thursday],
+            paymentRate: 30.00,
+            notes: "Very consistent T/Th schedule"
+        )
+        sadieClient.dogs = [sadie]
+        clients.append(sadieClient)
 
         return clients
     }
 
-    private static func createSamplePayments(for clients: [Client]) -> [Payment] {
+    private static func createSamplePayments(for clients: [Client], completedHikes: [CompletedHike]) -> [Payment] {
         var payments: [Payment] = []
         let calendar = Calendar.current
-        let today = Date()
+        let allDogs = clients.flatMap { $0.dogs }
 
-        // Create payments for each dog
-        for client in clients {
-            for dog in client.dogs {
-                // Most recent payment (within 2 weeks - not overdue)
-                let recentPayment = Payment(
-                    dog: dog,
-                    date: calendar.date(byAdding: .day, value: -7, to: today)!,
-                    amount: dog.paymentRate * 2,  // 2 weeks advance
-                    paid: true,
-                    method: "e-transfer"
-                )
-                payments.append(recentPayment)
+        // Create a dictionary to quickly find dogs by ID
+        let dogsByName = Dictionary(uniqueKeysWithValues: allDogs.map { ($0.name, $0) })
 
-                // Previous payment (4 weeks ago)
-                let previousPayment = Payment(
-                    dog: dog,
-                    date: calendar.date(byAdding: .day, value: -28, to: today)!,
-                    amount: dog.paymentRate * 2,
-                    paid: true,
-                    method: "e-transfer"
-                )
-                payments.append(previousPayment)
+        // For each completed hike, create payment records for most (but not all) dog attendances
+        for hike in completedHikes {
+            // Randomly decide if this hike's payments are current (~85% paid)
+            let isPaidHike = Double.random(in: 0...1) < 0.85
+
+            for attendance in hike.dogAttendances {
+                guard let dog = dogsByName[attendance.dogName] else { continue }
+
+                // Create payment for this specific hike if it's a paid hike
+                if isPaidHike {
+                    let payment = Payment(
+                        dog: dog,
+                        date: hike.date,
+                        amount: attendance.amountCharged,
+                        paid: true,
+                        method: "e-transfer",
+                        completedHikeId: hike.id
+                    )
+                    payments.append(payment)
+                }
+                // Otherwise leave unpaid (the "X" scenario in CSV)
             }
         }
 
-        // Make one dog overdue for testing
-        if let firstDog = clients.first?.dogs.first {
-            // Remove recent payments for this dog
-            payments.removeAll { $0.dog?.id == firstDog.id }
+        // Add some additional advance payments (not linked to completed hikes yet)
+        let today = calendar.startOfDay(for: Date())
 
-            // Add only an old payment (20 days ago - overdue)
-            let overduePayment = Payment(
-                dog: firstDog,
-                date: calendar.date(byAdding: .day, value: -20, to: today)!,
-                amount: firstDog.paymentRate * 2,
+        // Maya - recent e-transfer with note
+        if let maya = dogsByName["Maya"] {
+            let mayaAdvance = Payment(
+                dog: maya,
+                date: calendar.date(byAdding: .day, value: -3, to: today)!,
+                amount: 60.00,  // 2 hikes advance
+                paid: true,
+                method: "e-transfer",
+                notes: "2 weeks advance payment"
+            )
+            payments.append(mayaAdvance)
+        }
+
+        // Finn - overdue, last payment was 3 weeks ago
+        if let finn = dogsByName["Finn"] {
+            let finnOld = Payment(
+                dog: finn,
+                date: calendar.date(byAdding: .day, value: -21, to: today)!,
+                amount: 60.00,
                 paid: true,
                 method: "cash",
-                notes: "This payment is now overdue"
+                notes: "Payment now overdue"
             )
-            payments.append(overduePayment)
+            payments.append(finnOld)
+        }
+
+        // Denver - current, paid last week
+        if let denver = dogsByName["Denver"] {
+            let denverRecent = Payment(
+                dog: denver,
+                date: calendar.date(byAdding: .day, value: -7, to: today)!,
+                amount: 60.00,
+                paid: true,
+                method: "e-transfer"
+            )
+            payments.append(denverRecent)
+        }
+
+        // Nala - very current, paid yesterday
+        if let nala = dogsByName["Nala"] {
+            let nalaRecent = Payment(
+                dog: nala,
+                date: calendar.date(byAdding: .day, value: -1, to: today)!,
+                amount: 60.00,
+                paid: true,
+                method: "e-transfer",
+                notes: "Reliable client"
+            )
+            payments.append(nalaRecent)
+        }
+
+        // Harris - hasn't paid in a while
+        if let harris = dogsByName["Harris"] {
+            let harrisOld = Payment(
+                dog: harris,
+                date: calendar.date(byAdding: .day, value: -25, to: today)!,
+                amount: 60.00,
+                paid: true,
+                method: "e-transfer",
+                notes: "Need to follow up"
+            )
+            payments.append(harrisOld)
         }
 
         return payments
+    }
+
+    private static func createScheduleOverrides(for clients: [Client]) -> [ScheduleOverride] {
+        var overrides: [ScheduleOverride] = []
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let allDogs = clients.flatMap { $0.dogs }
+
+        // Create a dictionary to quickly find dogs by name
+        let dogsByName = Dictionary(uniqueKeysWithValues: allDogs.map { ($0.name, $0) })
+
+        // Maya - away next Wednesday
+        if let maya = dogsByName["Maya"], let nextWed = calendar.nextDate(after: today, matching: DateComponents(weekday: 4), matchingPolicy: .nextTime) {
+            overrides.append(ScheduleOverride(
+                dogId: maya.id,
+                date: nextWed,
+                type: .isAbsent
+            ))
+        }
+
+        // Maya - added for next Friday (exception)
+        if let maya = dogsByName["Maya"], let nextFri = calendar.nextDate(after: today, matching: DateComponents(weekday: 6), matchingPolicy: .nextTime) {
+            overrides.append(ScheduleOverride(
+                dogId: maya.id,
+                date: nextFri,
+                type: .isPresent
+            ))
+        }
+
+        // Denver - away in 2 weeks
+        if let denver = dogsByName["Denver"], let futureDate = calendar.date(byAdding: .day, value: 10, to: today) {
+            overrides.append(ScheduleOverride(
+                dogId: denver.id,
+                date: futureDate,
+                type: .isAbsent
+            ))
+        }
+
+        // Jude - added Thursday next week (exception)
+        if let jude = dogsByName["Jude"], let nextThu = calendar.nextDate(after: today, matching: DateComponents(weekday: 5), matchingPolicy: .nextTime) {
+            overrides.append(ScheduleOverride(
+                dogId: jude.id,
+                date: nextThu,
+                type: .isPresent
+            ))
+        }
+
+        // Nala - added Friday in 2 weeks (exception)
+        if let nala = dogsByName["Nala"], let futureFri = calendar.date(byAdding: .day, value: 12, to: today) {
+            overrides.append(ScheduleOverride(
+                dogId: nala.id,
+                date: futureFri,
+                type: .isPresent
+            ))
+        }
+
+        // Harris - off for an upcoming week (Monday and Wednesday)
+        if let harris = dogsByName["Harris"] {
+            if let mon = calendar.date(byAdding: .day, value: 14, to: today) {
+                overrides.append(ScheduleOverride(
+                    dogId: harris.id,
+                    date: mon,
+                    type: .isAbsent
+                ))
+            }
+            if let wed = calendar.date(byAdding: .day, value: 16, to: today) {
+                overrides.append(ScheduleOverride(
+                    dogId: harris.id,
+                    date: wed,
+                    type: .isAbsent
+                ))
+            }
+        }
+
+        // Finn - schedule change from regular pattern
+        if let finn = dogsByName["Finn"], let mon = calendar.nextDate(after: today, matching: DateComponents(weekday: 2), matchingPolicy: .nextTime) {
+            overrides.append(ScheduleOverride(
+                dogId: finn.id,
+                date: mon,
+                type: .isPresent
+            ))
+        }
+
+        return overrides
     }
 
     private static func createCompletedHikes(for clients: [Client], locations: [HikingLocation]) -> [CompletedHike] {
@@ -300,6 +669,10 @@ class SampleData {
 
         // Get all dogs for easy access
         let allDogs = clients.flatMap { $0.dogs }
+
+        // Separate dogs by region
+        let bedfordDogs = allDogs.prefix(7)  // Maya through Navi
+        let sackvilleDogs = allDogs.dropFirst(7)  // Nala through Sadie
 
         // Helper to create sample route coordinates around a center point
         func createSampleRoute(centerLat: Double, centerLon: Double, dogCount: Int) -> ([Double], [Double]) {
@@ -316,50 +689,43 @@ class SampleData {
             return (latitudes, longitudes)
         }
 
-        // Create completed hikes for the past 5 days
-        for daysAgo in 1...5 {
+        // Create completed hikes for the past 15 weekdays (3 weeks)
+        for daysAgo in 1...21 {
             guard let hikeDate = calendar.date(byAdding: .day, value: -daysAgo, to: today) else { continue }
 
             // Skip weekends
             let weekday = calendar.component(.weekday, from: hikeDate)
             if weekday == 1 || weekday == 7 { continue }
 
-            // Determine which dogs should have been on this hike based on their schedules
-            let dayOfWeek = hikeDate.dayOfWeek
-            let scheduledDogs = allDogs.filter { dog in
-                guard let dow = dayOfWeek else { return false }
-                return dog.regularSchedule.contains(dow)
-            }
+            guard let dayOfWeek = hikeDate.dayOfWeek else { continue }
 
-            // Skip if no dogs scheduled
-            guard !scheduledDogs.isEmpty else { continue }
+            // Determine which dogs should have been on each hike based on their schedules
+            let scheduledBedfordDogs = bedfordDogs.filter { $0.regularSchedule.contains(dayOfWeek) }
+            let scheduledSackvilleDogs = sackvilleDogs.filter { $0.regularSchedule.contains(dayOfWeek) }
 
-            // Split into hikes (max 8 per hike)
-            let hike1Dogs = Array(scheduledDogs.prefix(8))
-            let hike2Dogs = scheduledDogs.count > 8 ? Array(scheduledDogs.dropFirst(8).prefix(8)) : []
-
-            // Create Hike 1
-            if !hike1Dogs.isEmpty {
-                let trail1 = locations.randomElement()
-                let (lats1, lons1) = createSampleRoute(
-                    centerLat: 44.74,
-                    centerLon: -63.67,
-                    dogCount: hike1Dogs.count
+            // Create Hike 1 (Bedford) if there are dogs
+            if !scheduledBedfordDogs.isEmpty {
+                let trail = locations.first { $0.region == "Bedford" } ?? locations.first
+                let dogs = Array(scheduledBedfordDogs)
+                let (lats, lons) = createSampleRoute(
+                    centerLat: 44.73,
+                    centerLon: -63.68,
+                    dogCount: dogs.count
                 )
 
                 let hike1 = CompletedHike(
                     date: hikeDate,
                     hikeNumber: 1,
-                    routeLatitudes: lats1,
-                    routeLongitudes: lons1,
-                    trailLocationId: trail1?.id,
-                    trailName: trail1?.name,
+                    routeLatitudes: lats,
+                    routeLongitudes: lons,
+                    trailLocationId: trail?.id,
+                    trailName: trail?.name,
                     totalDistance: Double.random(in: 4000...6000),
-                    notes: daysAgo == 1 ? "Great weather, all dogs did well!" : nil
+                    notes: daysAgo == 1 ? "Beautiful day, great hike!" : nil
                 )
 
                 // Create attendance records for each dog
-                for (index, dog) in hike1Dogs.enumerated() {
+                for (index, dog) in dogs.enumerated() {
                     let attendance = DogAttendance(
                         dogId: dog.id,
                         dogName: dog.name,
@@ -375,28 +741,29 @@ class SampleData {
                 completedHikes.append(hike1)
             }
 
-            // Create Hike 2 if needed
-            if !hike2Dogs.isEmpty {
-                let trail2 = locations.randomElement()
-                let (lats2, lons2) = createSampleRoute(
-                    centerLat: 44.78,
+            // Create Hike 2 (Sackville/Beaver Bank) if there are dogs
+            if !scheduledSackvilleDogs.isEmpty {
+                let trail = locations.first { $0.region == "Sackville" || $0.region == "Beaver Bank" } ?? locations.last
+                let dogs = Array(scheduledSackvilleDogs)
+                let (lats, lons) = createSampleRoute(
+                    centerLat: 44.77,
                     centerLon: -63.64,
-                    dogCount: hike2Dogs.count
+                    dogCount: dogs.count
                 )
 
                 let hike2 = CompletedHike(
                     date: hikeDate,
                     hikeNumber: 2,
-                    routeLatitudes: lats2,
-                    routeLongitudes: lons2,
-                    trailLocationId: trail2?.id,
-                    trailName: trail2?.name,
+                    routeLatitudes: lats,
+                    routeLongitudes: lons,
+                    trailLocationId: trail?.id,
+                    trailName: trail?.name,
                     totalDistance: Double.random(in: 4500...6500),
-                    notes: nil
+                    notes: daysAgo == 2 ? "Dogs loved the lake!" : nil
                 )
 
                 // Create attendance records for each dog
-                for (index, dog) in hike2Dogs.enumerated() {
+                for (index, dog) in dogs.enumerated() {
                     let attendance = DogAttendance(
                         dogId: dog.id,
                         dogName: dog.name,
