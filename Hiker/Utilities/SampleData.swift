@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import CoreLocation
 
 @MainActor
 class SampleData {
@@ -19,6 +20,8 @@ class SampleData {
         try? context.delete(model: Payment.self)
         try? context.delete(model: ScheduleOverride.self)
         try? context.delete(model: HikingLocation.self)
+        try? context.delete(model: CompletedHike.self)
+        try? context.delete(model: DogAttendance.self)
 
         // Create hiking locations in Halifax area
         let locations = createHikingLocations()
@@ -36,6 +39,10 @@ class SampleData {
         // Create some sample payments
         let payments = createSamplePayments(for: clientsAndDogs)
         payments.forEach { context.insert($0) }
+
+        // Create sample completed hikes (for testing historical views)
+        let completedHikes = createCompletedHikes(for: clientsAndDogs, locations: locations)
+        completedHikes.forEach { context.insert($0) }
 
         // Save all changes
         try? context.save()
@@ -284,5 +291,128 @@ class SampleData {
         }
 
         return payments
+    }
+
+    private static func createCompletedHikes(for clients: [Client], locations: [HikingLocation]) -> [CompletedHike] {
+        var completedHikes: [CompletedHike] = []
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Get all dogs for easy access
+        let allDogs = clients.flatMap { $0.dogs }
+
+        // Helper to create sample route coordinates around a center point
+        func createSampleRoute(centerLat: Double, centerLon: Double, dogCount: Int) -> ([Double], [Double]) {
+            var latitudes: [Double] = []
+            var longitudes: [Double] = []
+
+            // Create a simple route with slight variations
+            for i in 0..<dogCount {
+                let offset = Double(i) * 0.002  // Small offset for each pickup
+                latitudes.append(centerLat + offset)
+                longitudes.append(centerLon + offset * 0.5)
+            }
+
+            return (latitudes, longitudes)
+        }
+
+        // Create completed hikes for the past 5 days
+        for daysAgo in 1...5 {
+            guard let hikeDate = calendar.date(byAdding: .day, value: -daysAgo, to: today) else { continue }
+
+            // Skip weekends
+            let weekday = calendar.component(.weekday, from: hikeDate)
+            if weekday == 1 || weekday == 7 { continue }
+
+            // Determine which dogs should have been on this hike based on their schedules
+            let dayOfWeek = hikeDate.dayOfWeek
+            let scheduledDogs = allDogs.filter { dog in
+                guard let dow = dayOfWeek else { return false }
+                return dog.regularSchedule.contains(dow)
+            }
+
+            // Skip if no dogs scheduled
+            guard !scheduledDogs.isEmpty else { continue }
+
+            // Split into hikes (max 8 per hike)
+            let hike1Dogs = Array(scheduledDogs.prefix(8))
+            let hike2Dogs = scheduledDogs.count > 8 ? Array(scheduledDogs.dropFirst(8).prefix(8)) : []
+
+            // Create Hike 1
+            if !hike1Dogs.isEmpty {
+                let trail1 = locations.randomElement()
+                let (lats1, lons1) = createSampleRoute(
+                    centerLat: 44.74,
+                    centerLon: -63.67,
+                    dogCount: hike1Dogs.count
+                )
+
+                let hike1 = CompletedHike(
+                    date: hikeDate,
+                    hikeNumber: 1,
+                    routeLatitudes: lats1,
+                    routeLongitudes: lons1,
+                    trailLocationId: trail1?.id,
+                    trailName: trail1?.name,
+                    totalDistance: Double.random(in: 4000...6000),
+                    notes: daysAgo == 1 ? "Great weather, all dogs did well!" : nil
+                )
+
+                // Create attendance records for each dog
+                for (index, dog) in hike1Dogs.enumerated() {
+                    let attendance = DogAttendance(
+                        dogId: dog.id,
+                        dogName: dog.name,
+                        pickupOrder: index + 1,
+                        pickupLatitude: dog.locationLatitude,
+                        pickupLongitude: dog.locationLongitude,
+                        pickupAddress: dog.locationAddress,
+                        amountCharged: dog.paymentRate
+                    )
+                    attendance.completedHike = hike1
+                }
+
+                completedHikes.append(hike1)
+            }
+
+            // Create Hike 2 if needed
+            if !hike2Dogs.isEmpty {
+                let trail2 = locations.randomElement()
+                let (lats2, lons2) = createSampleRoute(
+                    centerLat: 44.78,
+                    centerLon: -63.64,
+                    dogCount: hike2Dogs.count
+                )
+
+                let hike2 = CompletedHike(
+                    date: hikeDate,
+                    hikeNumber: 2,
+                    routeLatitudes: lats2,
+                    routeLongitudes: lons2,
+                    trailLocationId: trail2?.id,
+                    trailName: trail2?.name,
+                    totalDistance: Double.random(in: 4500...6500),
+                    notes: nil
+                )
+
+                // Create attendance records for each dog
+                for (index, dog) in hike2Dogs.enumerated() {
+                    let attendance = DogAttendance(
+                        dogId: dog.id,
+                        dogName: dog.name,
+                        pickupOrder: index + 1,
+                        pickupLatitude: dog.locationLatitude,
+                        pickupLongitude: dog.locationLongitude,
+                        pickupAddress: dog.locationAddress,
+                        amountCharged: dog.paymentRate
+                    )
+                    attendance.completedHike = hike2
+                }
+
+                completedHikes.append(hike2)
+            }
+        }
+
+        return completedHikes
     }
 }

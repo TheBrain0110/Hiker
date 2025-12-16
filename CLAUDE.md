@@ -57,8 +57,10 @@ The app uses **SwiftData** with iCloud CloudKit sync. All models are located in 
 - **Client** - Dog owner (name, contact info, address with geocoded coordinates)
 - **Dog** - Individual dog with regular weekly schedule, payment rate, pickup location
 - **ScheduleOverride** - Daily exceptions to regular schedules (`.isPresent` or `.isAbsent`)
-- **Payment** - Payment records linked to dogs
+- **Payment** - Payment records linked to dogs (now includes `completedHikeId` to link to specific hikes)
 - **HikingLocation** - Trail locations with coordinates and region tags
+- **CompletedHike** - Historical record of completed hikes with actual attendance and route data
+- **DogAttendance** - Per-dog participation tracking for completed hikes (denormalized snapshots)
 
 **Critical Data Model Patterns:**
 
@@ -77,6 +79,13 @@ The app uses **SwiftData** with iCloud CloudKit sync. All models are located in 
    - Stored as `[Int]` in SwiftData (`regularScheduleDays`)
    - Accessed via computed property `regularSchedule: [DayOfWeek]`
 
+4. **Historical Hike Storage**
+   - `CompletedHike` stores actual hike completion data
+   - `DogAttendance` tracks per-dog participation with denormalized snapshots
+   - Relationships: `CompletedHike` → `[DogAttendance]` (cascade delete)
+   - Route storage: Separate `routeLatitudes` and `routeLongitudes` arrays
+   - Computed property `route: [CLLocationCoordinate2D]` reconstructs coordinates
+
 ### Schedule Logic (`DailyHikeManager.swift`)
 
 The **DailyHikeManager** computes daily schedules by combining:
@@ -88,6 +97,21 @@ The **DailyHikeManager** computes daily schedules by combining:
 - `OverrideType.isPresent` = dog is scheduled (even if not in regular schedule)
 - `OverrideType.isAbsent` = dog is NOT scheduled (even if in regular schedule)
 - No override = follow regular schedule
+
+**Override State Machine (Adding/Removing Dogs):**
+- **Adding a dog:**
+  - If override exists → Delete it (revert to regular schedule)
+  - If no override and NOT in regular schedule → Create `.isPresent` override
+  - If no override and in regular schedule → Do nothing (already scheduled)
+- **Removing a dog:**
+  - If `.isPresent` override exists → Delete it (revert to not scheduled)
+  - If `.isAbsent` override exists → Do nothing (already absent)
+  - If no override → Create `.isAbsent` override (block regular schedule)
+
+**Badge System:**
+- **"Added" badge (green)** - Shown when dog has `.isPresent` override (exception to regular schedule)
+- **"Removed" badge (red)** - Shown when dog has `.isAbsent` override (blocked from regular schedule)
+- **No badge** - Dog following their regular weekly pattern (default state)
 
 **Date Handling:**
 - Use `Calendar.current.startOfDay(for:)` to normalize dates (time component stripped)
@@ -110,18 +134,38 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 
 ### View Architecture
 
-**TabView Structure (4 tabs):**
-1. **Today** (`TodayView.swift`) - Daily schedule with hike cards, payment status
-2. **Weekly** (`WeeklyScheduleView.swift`) - Week calendar for schedule management
-3. **Clients** (`ClientsView.swift`) - Client/dog roster with detail views
-4. **Settings** - Sample data loading, data management
+**TabView Structure (3 tabs):**
+1. **Schedule** (`ScheduleView.swift`) - **UNIFIED VIEW** replacing Today + Weekly tabs
+   - Scrolling timeline (past/present/future days)
+   - Toggle between list and calendar views
+   - Conditional UI based on day type (past/today/future)
+2. **Clients** (`ClientsView.swift`) - Client/dog roster with detail views
+3. **Settings** - Sample data loading, data management
+
+**Schedule View Components:**
+- `ScheduleListView.swift` - Scrolling day timeline (30 days past, 60 days future)
+- `ScheduleCalendarView.swift` - Monthly grid calendar with indicators
+- `DayRow.swift` - List item showing day summary
+- `DayDetailView.swift` - Full day view with conditional UI and edit mode
+  - **Edit Mode:** Toggle between view/edit modes for schedule management
+  - **iOS Swipe Actions:** Swipe-to-delete dogs from hikes (iOS only)
+  - **Badge System:** Visual indicators for schedule overrides (Added/Removed)
+  - **Navigation:** Tap dog rows to navigate to DogDetailView
+- `CompleteHikeSheet.swift` - Modal workflow for marking hikes complete
+- `CompletedHikeCard.swift` - Display component for historical hikes
+- `MonthNavigationHeader.swift` - Reusable month navigation controls
+- `WeekdayHeader.swift` - Reusable weekday column headers
 
 **Detail Views:**
 - `ClientDetailView.swift` - Edit client info, manage their dogs
-- `DogDetailView.swift` - Edit dog details, schedule, payments
+- `DogDetailView.swift` - Edit dog details, schedule, payments, calendar view
+  - **Segmented Control:** Switch between weekly pattern editor and calendar view
+  - `DogScheduleCalendarView.swift` - Per-dog monthly calendar with interactive override editing
+  - `EditableWeeklySchedule.swift` - Weekly pattern toggle buttons
 
 **Component Views:**
 - `HikeCard.swift` - Displays single hike with dog list, route map, distance
+- `Badge.swift` - Reusable pill-shaped badge for status indicators (inactive, overdue, Added, Removed)
 
 ### Business Rules
 
@@ -177,6 +221,11 @@ Use `SampleData.createSampleData(in:)` to populate test data:
 - Creates clients with dogs in Bedford/Sackville/Beaver Bank
 - Adds hiking locations for each region
 - Sets up realistic schedules (Mon/Wed/Fri patterns)
+- Generates **completed hikes for past 5 weekdays** with attendance records
+  - Automatically determines scheduled dogs based on their regular schedules
+  - Creates sample route coordinates and assigns random trails
+  - Includes DogAttendance records with denormalized data (dogName, address, rates)
+  - Adds notes to most recent hike for testing
 
 Load via Settings tab → "Load Sample Data"
 
@@ -188,6 +237,48 @@ Load via Settings tab → "Load Sample Data"
 - Test with multiple devices logged into same iCloud account
 
 ## Common Patterns
+
+### Edit Mode Pattern
+DayDetailView implements a toggle-based edit mode for schedule management:
+
+```swift
+@State private var isEditing = false
+
+// Toolbar button (only for today/future)
+if !isPast {
+    Button(isEditing ? "Done" : "Edit") {
+        withAnimation {
+            isEditing.toggle()
+        }
+    }
+}
+
+// Conditional UI
+if isEditing {
+    // Show edit controls (remove buttons, "Available to Add" section)
+}
+```
+
+**Edit Mode Features:**
+- **iOS Swipe Actions:** Use `#if os(iOS)` for swipe-to-delete gestures
+- **Explicit Buttons:** Remove buttons visible only in edit mode
+- **Progressive Disclosure:** Hide "Available to Add" section until edit mode activated
+
+### Navigation from List Items
+Dog rows in hike cards are wrapped in NavigationLinks for direct navigation:
+
+```swift
+NavigationLink {
+    DogDetailView(dog: dog)
+} label: {
+    // Row content
+}
+```
+
+**For historical data (CompletedHikeDogRow):**
+- Look up dog by UUID using FetchDescriptor
+- Show NavigationLink only if dog still exists
+- Gracefully handle deleted dogs (show historical data without navigation)
 
 ### Platform-Specific Code
 **CRITICAL:** Always wrap platform-specific modifiers in conditional compilation to support both iOS and macOS:
@@ -256,27 +347,41 @@ NavigationStack {
 ```
 Hiker/
 ├── HikerApp.swift           # App entry, SwiftData setup
-├── ContentView.swift        # Main TabView
+├── ContentView.swift        # Main TabView (3 tabs: Schedule, Clients, Settings)
 ├── Models/
 │   ├── Client.swift
 │   ├── Dog.swift
-│   ├── Payment.swift
+│   ├── Payment.swift        # Extended with completedHikeId
 │   ├── ScheduleOverride.swift
 │   ├── ScheduleStatus.swift
 │   ├── DayOfWeek.swift
 │   ├── HikingLocation.swift
-│   └── DailyHike.swift      # View model (not persisted)
+│   ├── DailyHike.swift      # View model (not persisted)
+│   ├── CompletedHike.swift  # NEW: Historical hike records
+│   └── DogAttendance.swift  # NEW: Per-dog participation tracking
 ├── Managers/
 │   └── DailyHikeManager.swift
 ├── Utilities/
 │   ├── RouteOptimizer.swift
 │   └── SampleData.swift
 ├── Views/
-│   ├── TodayView.swift
-│   ├── WeeklyScheduleView.swift
-│   ├── ClientsView.swift
-│   ├── ClientDetailView.swift
-│   ├── DogDetailView.swift
+│   ├── ScheduleView.swift   # Main schedule tab (replaces former Today + Weekly tabs)
+│   ├── Schedule/            # Schedule view components
+│   │   ├── ScheduleListView.swift
+│   │   ├── ScheduleCalendarView.swift
+│   │   ├── DayRow.swift
+│   │   ├── DayDetailView.swift  # With edit mode, badges, navigation
+│   │   ├── CompleteHikeSheet.swift
+│   │   └── CompletedHikeCard.swift
+│   ├── Clients/             # Client management views
+│   │   ├── ClientsView.swift
+│   │   ├── ClientDetailView.swift
+│   │   ├── DogDetailView.swift
+│   │   └── DogScheduleCalendarView.swift  # Per-dog calendar with override editing
+│   ├── Components/          # Shared UI components
+│   │   ├── Badge.swift
+│   │   ├── MonthNavigationHeader.swift
+│   │   └── WeekdayHeader.swift
 │   └── HikeCard.swift
 └── Extensions/
     └── Date+Extensions.swift

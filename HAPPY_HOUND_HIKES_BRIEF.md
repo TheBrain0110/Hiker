@@ -86,6 +86,109 @@
 
 ---
 
+## UPDATED DESIGN: Unified Schedule View (v2.0)
+
+**Status:** In Development
+**Date:** 2025-12-16
+
+### Design Evolution
+The original design separated "Today's Schedule" and "Weekly Schedule Manager" into distinct views. Based on UX review, these have been **consolidated into a single unified Schedule view** that provides:
+
+1. **Scrolling Timeline** - Past, present, and future days in one continuous list
+2. **Historical Tracking** - Complete record of past hikes with attendance and completion data
+3. **Flexible Viewing** - Toggle between list and calendar views
+4. **Contextual Actions** - Different capabilities for past/present/future days
+
+### Unified Schedule View Features
+
+**Timeline View (Primary):**
+- **Past 30 days**: Shows completed hikes or "No hikes" if none occurred
+- **Today**: Highlighted with distinct styling, shows planned schedule + completion status
+- **Future 60 days**: Shows computed schedules based on dog regular schedules + overrides
+- Auto-scrolls to "today" on launch for quick access
+- Tap any day to see full detail view with route map, dog list, etc.
+
+**Calendar View (Alternative):**
+- Monthly grid calendar (Mon-Sun)
+- Visual indicators: dots for scheduled days, checkmarks for completed
+- Month navigation (previous/next buttons)
+- Tap date to open day detail sheet
+
+**Day Detail Views (Conditional based on day type):**
+
+*Past Days:*
+- Display `CompletedHike` records with actual attendance
+- Show notes, trail used, route taken, completion timestamp
+- Allow editing for corrections (e.g., fix attendance errors)
+- Read-only route map showing actual pickups
+
+*Today:*
+- Show planned schedule from `DailyHikeManager`
+- **"Mark Complete" button** launches completion workflow
+- Mark which dogs actually attended (defaults to all)
+- Select trail visited, add notes
+- Creates `CompletedHike` + `DogAttendance` records
+
+*Future Days:*
+- Show computed schedule (editable)
+- Add/remove dogs via `ScheduleOverride` records
+- Visual indicators for overridden schedules
+- Same functionality as original "Weekly Schedule Manager"
+
+### New Data Models
+
+**CompletedHike:**
+```swift
+@Model
+final class CompletedHike {
+    var date: Date                          // Day hike occurred (normalized to startOfDay)
+    var hikeNumber: Int                     // 1 or 2
+    var completedAt: Date                   // Timestamp when marked complete
+    var routeLatitudes: [Double]            // Actual route taken
+    var routeLongitudes: [Double]
+    var totalDistance: Double
+    var trailLocationId: UUID?
+    var trailName: String?                  // Denormalized for history
+    var notes: String?
+    @Relationship(deleteRule: .cascade)
+    var dogAttendances: [DogAttendance]
+}
+```
+
+**DogAttendance:**
+```swift
+@Model
+final class DogAttendance {
+    var dogId: UUID
+    var dogName: String                     // Denormalized snapshot
+    var pickupOrder: Int                    // 1-8, position in route
+    var pickupLatitude: Double?
+    var pickupLongitude: Double?
+    var pickupAddress: String?              // Snapshot of address at time
+    var paymentId: UUID?                    // Link to payment record
+    var amountCharged: Decimal              // Rate at time of hike
+    var completedHike: CompletedHike?
+}
+```
+
+### Key Benefits of Unified Design
+
+1. **Historical Records**: Past hikes are now permanently recorded with actual attendance, not just computed from schedules
+2. **Single Source of Truth**: One timeline showing past, present, and future eliminates need to switch between tabs
+3. **Flexible Viewing**: Calendar provides overview, list provides detail—user chooses based on need
+4. **Completion Tracking**: Clear workflow for transitioning planned hikes to completed records
+5. **Data Integrity**: Denormalized snapshots in `DogAttendance` preserve historical accuracy even if dog/client data changes
+
+### Migration from Original Design
+
+- **Today tab** → Integrated into unified timeline (today's row)
+- **Weekly tab** → Integrated into timeline (future days are editable)
+- Maintains all original functionality while adding historical tracking
+- No breaking changes to existing data models (Dog, ScheduleOverride, etc.)
+- Additive approach: `CompletedHike` supplements existing computed schedules
+
+---
+
 ### 3. Client & Dog Management
 **Goal:** Maintain roster of clients and their dogs with location and schedule info.
 
@@ -506,7 +609,7 @@ If any requirements seem unclear during development, refer back to this brief or
 
 ---
 
-**Document Version:** 1.0  
-**Created:** 2025-11-07  
-**Last Updated:** 2025-11-07  
-**Status:** Ready for Development
+**Document Version:** 2.0
+**Created:** 2025-11-07
+**Last Updated:** 2025-12-16
+**Status:** In Development - Unified Schedule View Implementation

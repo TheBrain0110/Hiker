@@ -13,16 +13,10 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            // Home: Today's Schedule
-            TodayView()
+            // Unified Schedule View (replaces Today + Weekly)
+            ScheduleView()
                 .tabItem {
-                    Label("Today", systemImage: "calendar")
-                }
-
-            // Weekly Schedule
-            WeeklyScheduleView()
-                .tabItem {
-                    Label("Weekly", systemImage: "calendar.day.timeline.left")
+                    Label("Schedule", systemImage: "calendar")
                 }
 
             // Clients
@@ -108,6 +102,8 @@ struct SettingsView: View {
             try? modelContext.delete(model: Payment.self)
             try? modelContext.delete(model: ScheduleOverride.self)
             try? modelContext.delete(model: HikingLocation.self)
+            try? modelContext.delete(model: CompletedHike.self)
+            try? modelContext.delete(model: DogAttendance.self)
         }
     }
 }

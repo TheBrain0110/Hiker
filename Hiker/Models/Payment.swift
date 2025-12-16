@@ -18,6 +18,9 @@ final class Payment {
     var method: String?  // "e-transfer", "cash", etc.
     var notes: String?
 
+    // NEW: Link to completed hike for historical tracking
+    var completedHikeId: UUID?
+
     init(
         id: UUID = UUID(),
         dog: Dog? = nil,
@@ -25,7 +28,8 @@ final class Payment {
         amount: Decimal,
         paid: Bool = true,
         method: String? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        completedHikeId: UUID? = nil
     ) {
         self.id = id
         self.dog = dog
@@ -34,5 +38,6 @@ final class Payment {
         self.paid = paid
         self.method = method
         self.notes = notes
+        self.completedHikeId = completedHikeId
     }
 }

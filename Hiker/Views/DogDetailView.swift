@@ -8,11 +8,17 @@
 import SwiftUI
 import SwiftData
 
+enum DogScheduleViewMode {
+    case weeklyPattern
+    case calendar
+}
+
 struct DogDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var dog: Dog
 
     @State private var showingEditDog = false
+    @State private var scheduleViewMode: DogScheduleViewMode = .weeklyPattern
 
     var body: some View {
         List {
@@ -21,13 +27,31 @@ struct DogDetailView: View {
                 dogHeader
             }
 
-            // Weekly Schedule - This is the key feature
+            // Schedule - With view mode picker
             Section {
-                EditableWeeklySchedule(dog: dog)
+                // Segmented picker
+                Picker("View Mode", selection: $scheduleViewMode) {
+                    Text("Weekly Pattern").tag(DogScheduleViewMode.weeklyPattern)
+                    Text("Calendar").tag(DogScheduleViewMode.calendar)
+                }
+                .pickerStyle(.segmented)
+                .padding(.bottom, 8)
+
+                // Conditional view
+                if scheduleViewMode == .weeklyPattern {
+                    EditableWeeklySchedule(dog: dog)
+                } else {
+                    DogScheduleCalendarView(dog: dog)
+                        .frame(height: 380)
+                }
             } header: {
-                Text("Weekly Schedule")
+                Text("Schedule")
             } footer: {
-                Text("Tap days to toggle. Changes save automatically.")
+                if scheduleViewMode == .calendar {
+                    Text("Tap dates to override your weekly pattern. Tap again to revert.")
+                } else {
+                    Text("Tap days to toggle. Changes save automatically.")
+                }
             }
 
             // Pickup Location
