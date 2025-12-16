@@ -7,6 +7,15 @@
 
 import Foundation
 
+/// Date utilities for schedule management.
+///
+/// **Week Start Convention:**
+/// This app uses Monday as the first day of the week (business week convention)
+/// regardless of user locale. Functions like `startOfWeek` and `isSameWeek`
+/// explicitly set `calendar.firstWeekday = 2` to ensure consistent behavior.
+///
+/// Without this, US locales would use Sunday as first day of week, causing
+/// schedule calculations to return incorrect dates.
 extension Date {
     /// Returns the start of the day (midnight) for this date
     var startOfDay: Date {
@@ -15,7 +24,9 @@ extension Date {
 
     /// Returns the start of the week (Monday at midnight) for this date
     var startOfWeek: Date {
-        let calendar = Calendar.current
+        // Use a calendar with Monday as first day of week (business week)
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday = 2
         let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: self)
         return calendar.date(from: components) ?? self
     }
@@ -90,10 +101,13 @@ extension Date {
 }
 
 extension Calendar {
-    /// Check if two dates are in the same week
+    /// Check if two dates are in the same week (using Monday as first day of week)
     func isSameWeek(_ date1: Date, as date2: Date) -> Bool {
-        let components1 = dateComponents([.yearForWeekOfYear, .weekOfYear], from: date1)
-        let components2 = dateComponents([.yearForWeekOfYear, .weekOfYear], from: date2)
+        // Use a calendar with Monday as first day of week (business week)
+        var calendar = self
+        calendar.firstWeekday = 2 // Monday = 2
+        let components1 = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date1)
+        let components2 = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date2)
         return components1.yearForWeekOfYear == components2.yearForWeekOfYear &&
                components1.weekOfYear == components2.weekOfYear
     }

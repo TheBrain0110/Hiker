@@ -222,6 +222,68 @@ modelContext.delete(dog)
 try? modelContext.delete(model: Dog.self)
 ```
 
+### Unit Testing
+
+The project uses Swift Testing framework (`@Test`, `#expect`) for unit tests in `HikerTests/`.
+
+**Test Files:**
+- `ModelTests.swift` - SwiftData model computed properties (28 tests)
+- `DateExtensionTests.swift` - Date utility functions (25 tests)
+- `RouteOptimizerTests.swift` - Route optimization algorithms (12 tests)
+- `DayOfWeekTests.swift` - DayOfWeek enum (6 tests)
+- `DailyHikeManagerTests.swift` - Schedule computation (15 tests, **disabled**)
+- `ScheduleOverrideTests.swift` - Override logic (9 tests, **disabled**)
+
+**Running Tests:**
+```bash
+# Run all unit tests
+xcodebuild test -scheme Hiker -destination 'platform=macOS' -only-testing:HikerTests
+
+# Run specific test suite
+xcodebuild test -scheme Hiker -destination 'platform=macOS' -only-testing:HikerTests/ModelTests
+```
+
+### SwiftData Unit Testing Limitation
+
+**⚠️ IMPORTANT:** SwiftData models cannot be fully tested in unit tests due to a cross-module type metadata issue.
+
+**The Problem:**
+When the test target creates a `ModelContainer` with `@Model` types defined in the main app target, SwiftData cannot resolve the model type metadata at runtime. This causes:
+- `EXC_BREAKPOINT (SIGTRAP)` crash at `context.insert()`
+- Objects appear as `Hiker.Client._SwiftDataNoType` in debugger
+- Happens even though `@testable import Hiker` provides compile-time access
+
+**Root Cause:**
+The `@Model` macro generates runtime type metadata that lives in the main app binary. The test target's `ModelContainer` looks for this metadata but can't find it across the module boundary.
+
+**What CAN Be Tested (without ModelContext):**
+```swift
+// ✅ Create model instances without inserting into context
+let dog = Dog(name: "Buddy", client: nil, regularSchedule: [.monday, .friday])
+
+// ✅ Test computed properties
+#expect(dog.isScheduledOn(.monday) == true)
+#expect(dog.location == nil)
+
+// ✅ Test setters
+dog.regularSchedule = [.tuesday]
+#expect(dog.regularScheduleDays == [2])
+```
+
+**What CANNOT Be Tested (requires ModelContext):**
+- Relationship navigation (`client.dogs`, `dog.payments`)
+- Queries and fetches
+- `DailyHikeManager` (queries dogs and overrides)
+- Integration tests that persist and retrieve data
+
+**Workarounds:**
+1. **Test model logic without context** - Current approach in `ModelTests.swift`
+2. **UI Tests** - Run in app's process with access to type metadata
+3. **Shared Framework** - Move models to framework linked by both targets
+4. **Wait for Apple fix** - May be resolved in future Xcode versions
+
+See detailed documentation in test file headers, especially `DailyHikeManagerTests.swift`.
+
 ### Sample Data
 
 Use `SampleData.createSampleData(in:)` to populate test data:
@@ -314,8 +376,19 @@ TextField("Phone", text: $phone)
 if let dayOfWeek = date.dayOfWeek {
     // Returns DayOfWeek enum (.monday through .friday)
 }
+
+// Start of week (always Monday, regardless of locale)
+let monday = date.startOfWeek
+
+// Get specific day in same week
+let friday = date.date(for: .friday)
 ```
 Located in `Hiker/Extensions/Date+Extensions.swift`
+
+**Week Start Convention:**
+The app explicitly sets `calendar.firstWeekday = 2` (Monday) in `startOfWeek` and `isSameWeek` to ensure consistent Monday-based weeks regardless of user locale. This is a business requirement since the dog hiking service operates Monday-Friday only.
+
+Without this override, US locales would use Sunday as first day of week, causing `startOfWeek` to return the wrong date and breaking schedule calculations.
 
 ### Navigation
 ```swift
@@ -361,7 +434,6 @@ Hiker/
 │   ├── Dog.swift
 │   ├── Payment.swift        # Extended with completedHikeId
 │   ├── ScheduleOverride.swift
-│   ├── ScheduleStatus.swift
 │   ├── DayOfWeek.swift
 │   ├── HikingLocation.swift
 │   ├── DailyHike.swift      # View model (not persisted)

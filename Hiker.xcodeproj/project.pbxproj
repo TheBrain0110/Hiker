@@ -27,6 +27,7 @@
 		4F4299FB2EBDAAA900492FFD /* Hiker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hiker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F429A0C2EBDAAAA00492FFD /* HikerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HikerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4F429A162EBDAAAA00492FFD /* HikerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HikerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4FF671222EF1EB3100354FC5 /* Hiker.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hiker.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,6 +89,7 @@
 		4F4299F22EBDAAA900492FFD = {
 			isa = PBXGroup;
 			children = (
+				4FF671222EF1EB3100354FC5 /* Hiker.xctestplan */,
 				4F4299FD2EBDAAA900492FFD /* Hiker */,
 				4F429A0F2EBDAAAA00492FFD /* HikerTests */,
 				4F429A192EBDAAAA00492FFD /* HikerUITests */,
