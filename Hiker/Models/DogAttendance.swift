@@ -25,6 +25,9 @@ final class DogAttendance {
     var paymentId: UUID?                    // Link to Payment record
     var amountCharged: Decimal              // Snapshot of rate at time
 
+    // Schedule override tracking
+    var wasAddedViaOverride: Bool = false   // True if dog had .isPresent override (shows "Added" badge)
+
     var completedHike: CompletedHike?
 
     init(
@@ -36,7 +39,8 @@ final class DogAttendance {
         pickupLongitude: Double? = nil,
         pickupAddress: String? = nil,
         paymentId: UUID? = nil,
-        amountCharged: Decimal = 25.00
+        amountCharged: Decimal = 25.00,
+        wasAddedViaOverride: Bool = false
     ) {
         self.id = id
         self.dogId = dogId
@@ -47,6 +51,7 @@ final class DogAttendance {
         self.pickupAddress = pickupAddress
         self.paymentId = paymentId
         self.amountCharged = amountCharged
+        self.wasAddedViaOverride = wasAddedViaOverride
     }
 
     var pickupLocation: CLLocationCoordinate2D? {

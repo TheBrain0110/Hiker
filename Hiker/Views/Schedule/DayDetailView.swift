@@ -23,8 +23,7 @@ struct DayDetailView: View {
     @Query private var scheduleOverrides: [ScheduleOverride]
 
     @State private var dailySchedule: DailyHike?
-    @State private var showingCompleteSheet = false
-    @State private var selectedHikeNumber: Int?
+    @State private var selectedHike: DailyHike.Hike?
     @State private var isEditing = false
 
     // Initialize with a starting date
@@ -47,6 +46,21 @@ struct DayDetailView: View {
     private var completedHikesForDay: [CompletedHike] {
         completedHikes.filter { hike in
             Calendar.current.isDate(hike.date, inSameDayAs: currentDate)
+        }
+    }
+
+    // Check if there are any pending (uncompleted) hikes for this day
+    private var hasPendingHikes: Bool {
+        guard let schedule = dailySchedule, !schedule.isEmpty else { return false }
+
+        // If it's a future day, all hikes are pending
+        if isFuture { return true }
+
+        // For past/today, check if any hikes are not yet completed
+        return schedule.hikes.contains { plannedHike in
+            !completedHikesForDay.contains { completedHike in
+                completedHike.hikeNumber == plannedHike.number
+            }
         }
     }
 
@@ -77,14 +91,8 @@ struct DayDetailView: View {
                 }
                 .padding(.top)
 
-                // Conditional content based on day type
-                if isPast {
-                    pastDayContent
-                } else if isToday {
-                    todayContent
-                } else {
-                    futureDayContent
-                }
+                // Unified day content (handles past/today/future with conditionals)
+                dayContent
             }
             .padding()
         }
@@ -99,13 +107,18 @@ struct DayDetailView: View {
                         Image(systemName: "chevron.left")
                     }
 
+                    Button(action: jumpToToday) {
+                        Image(systemName: "calendar")
+                    }
+                    .disabled(isToday)
+
                     Button(action: nextDay) {
                         Image(systemName: "chevron.right")
                     }
                 }
 
-                // Edit button (only for today/future)
-                if !isPast {
+                // Edit button (only for days with pending hikes)
+                if hasPendingHikes {
                     Button(isEditing ? "Done" : "Edit") {
                         withAnimation {
                             isEditing.toggle()
@@ -126,99 +139,89 @@ struct DayDetailView: View {
         .onChange(of: scheduleOverrides) {
             loadSchedule()
         }
-        .sheet(isPresented: $showingCompleteSheet) {
-            if let hikeNumber = selectedHikeNumber,
-               let hike = dailySchedule?.hikes.first(where: { $0.number == hikeNumber }) {
-                CompleteHikeSheet(date: currentDate, hike: hike)
-            }
+        .sheet(item: $selectedHike) { hike in
+            CompleteHikeSheet(date: currentDate, hike: hike)
         }
     }
 
-    // MARK: - Past Day Content
+    // MARK: - Unified Day Content
 
-    private var pastDayContent: some View {
+    private var dayContent: some View {
         VStack(spacing: 16) {
-            if completedHikesForDay.isEmpty {
-                ContentUnavailableView(
-                    "No Hikes Completed",
-                    systemImage: "calendar.badge.exclamationmark",
-                    description: Text("No hikes were recorded for this day.")
-                )
-                .padding(.top, 40)
-            } else {
+            // Completed hikes (for past and today)
+            if !completedHikesForDay.isEmpty {
                 ForEach(completedHikesForDay) { completedHike in
                     CompletedHikeCard(completedHike: completedHike)
                 }
             }
-        }
-    }
 
-    // MARK: - Today Content
-
-    private var todayContent: some View {
-        VStack(spacing: 16) {
+            // Planned hikes section
             if let schedule = dailySchedule, !schedule.isEmpty {
-                ForEach(schedule.hikes) { hike in
-                    PlannedHikeCard(
-                        hike: hike,
-                        isEditing: isEditing,
-                        scheduleOverrides: scheduleOverrides,
-                        currentDate: currentDate,
-                        onMarkComplete: {
-                            selectedHikeNumber = hike.number
-                            showingCompleteSheet = true
-                        },
-                        onRemoveDog: { dog in
-                            removeDog(dog)
+                let pendingHikes = isPast || isToday
+                    ? schedule.hikes.filter { plannedHike in
+                        !completedHikesForDay.contains { completedHike in
+                            completedHike.hikeNumber == plannedHike.number
                         }
-                    )
+                      }
+                    : schedule.hikes  // Future: show all (none complete yet)
+
+                if !pendingHikes.isEmpty {
+                    // Warning header (only for past uncompleted hikes)
+                    if isPast {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("Uncompleted Hikes")
+                                    .font(.headline)
+                                    .foregroundStyle(.orange)
+                            }
+                            .padding(.horizontal)
+
+                            Text("These hikes were scheduled but not marked complete. Tap to complete retroactively.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                        }
+                    }
+
+                    ForEach(pendingHikes) { hike in
+                        PlannedHikeCard(
+                            hike: hike,
+                            isEditing: isEditing,
+                            scheduleOverrides: scheduleOverrides,
+                            currentDate: currentDate,
+                            onMarkComplete: isFuture ? nil : { selectedHike = hike },  // Enable for past + today
+                            onRemoveDog: isPast ? nil : { dog in removeDog(dog) }      // Disable for past
+                        )
+                    }
                 }
-            } else {
+            }
+
+            // Empty state
+            if completedHikesForDay.isEmpty && (dailySchedule?.isEmpty ?? true) {
                 ContentUnavailableView(
                     "No Hikes Scheduled",
                     systemImage: "calendar",
-                    description: Text("No dogs are scheduled for today.")
+                    description: Text(emptyStateText)
                 )
                 .padding(.top, 40)
             }
 
-            // Available to Add section (only in edit mode)
-            if isEditing {
+            // Available to Add (only for days with pending hikes in edit mode)
+            if isEditing && hasPendingHikes {
                 availableToAddSection
             }
         }
     }
 
-    // MARK: - Future Day Content
-
-    private var futureDayContent: some View {
-        VStack(spacing: 16) {
-            if let schedule = dailySchedule, !schedule.isEmpty {
-                ForEach(schedule.hikes) { hike in
-                    PlannedHikeCard(
-                        hike: hike,
-                        isEditing: isEditing,
-                        scheduleOverrides: scheduleOverrides,
-                        currentDate: currentDate,
-                        onMarkComplete: nil,
-                        onRemoveDog: { dog in
-                            removeDog(dog)
-                        }
-                    )
-                }
-            } else {
-                ContentUnavailableView(
-                    "No Dogs Scheduled",
-                    systemImage: "calendar",
-                    description: Text("No dogs are scheduled for this day.")
-                )
-                .padding(.top, 40)
-            }
-
-            // Available to Add section (only in edit mode)
-            if isEditing {
-                availableToAddSection
-            }
+    private var emptyStateText: String {
+        if isPast {
+            return "No hikes were scheduled for this day."
+        } else if isToday {
+            return "No dogs are scheduled for today."
+        } else {
+            return "No dogs are scheduled for this day."
         }
     }
 
@@ -313,6 +316,12 @@ struct DayDetailView: View {
         }
     }
 
+    private func jumpToToday() {
+        withAnimation {
+            currentDate = Calendar.current.startOfDay(for: Date())
+        }
+    }
+
     private func addDog(_ dog: Dog) {
         // Check if there's an existing override
         if let existing = scheduleOverrides.first(where: {
@@ -397,6 +406,13 @@ private struct CompletedHikeCard: View {
                         .padding(.vertical, 12)
                 }
 
+                // Removed Dogs Section
+                if !completedHike.removedDogNames.isEmpty {
+                    Divider()
+                    removedDogsSection
+                        .padding()
+                }
+
                 // Route Map
                 if !completedHike.route.isEmpty {
                     Divider()
@@ -467,6 +483,42 @@ private struct CompletedHikeCard: View {
                         .padding(.leading, 60)
                 }
             }
+        }
+    }
+
+    // MARK: - Removed Dogs Section
+
+    private var removedDogsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .imageScale(.medium)
+                Text("Removed from Schedule")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(completedHike.removedDogNames.enumerated()), id: \.offset) { index, dogName in
+                    HStack(spacing: 12) {
+                        Image(systemName: "pawprint.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red.opacity(0.6))
+                            .frame(width: 20)
+
+                        Text(dogName)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Badge(text: "Removed", color: .red)
+
+                        Spacer()
+                    }
+                }
+            }
+            .padding(.leading, 28)
         }
     }
 
@@ -581,9 +633,16 @@ private struct CompletedHikeDogRow: View {
 
             // Dog info
             VStack(alignment: .leading, spacing: 4) {
-                Text(attendance.dogName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                HStack {
+                    Text(attendance.dogName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    // "Added" badge for override dogs
+                    if attendance.wasAddedViaOverride {
+                        Badge(text: "Added", color: .green)
+                    }
+                }
 
                 if let address = attendance.pickupAddress {
                     Text(address)

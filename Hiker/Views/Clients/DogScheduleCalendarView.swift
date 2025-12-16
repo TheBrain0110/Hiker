@@ -84,6 +84,13 @@ struct DogScheduleCalendarView: View {
         // Don't allow editing past dates
         guard normalizedDate >= calendar.startOfDay(for: Date()) else { return }
 
+        // Don't allow editing dates with completed hikes
+        let hasCompletedHike = dogAttendances.contains { attendance in
+            guard let hikeDate = attendance.completedHike?.date else { return false }
+            return calendar.isDate(hikeDate, inSameDayAs: normalizedDate)
+        }
+        guard !hasCompletedHike else { return }
+
         // Check for existing override
         if let existingOverride = dogOverrides.first(where: {
             calendar.isDate($0.date, inSameDayAs: normalizedDate)
@@ -207,18 +214,18 @@ private struct DogCalendarDayCell: View {
         // Check if this is a past date
         let isPastDate = normalizedDate < today
 
-        // Check for completed hike (past only)
-        let isCompleted = isPastDate && dogAttendances.contains { attendance in
+        // Check for completed hike (on any date, including today)
+        let isCompleted = dogAttendances.contains { attendance in
             guard let hikeDate = attendance.completedHike?.date else { return false }
             return calendar.isDate(hikeDate, inSameDayAs: normalizedDate)
         }
 
-        // For future/today: check schedule
+        // For future/today without completed hike: check schedule
         var isScheduled = false
         var isAbsent = false
         var hasOverride = false
 
-        if !isPastDate {
+        if !isPastDate && !isCompleted {
             // Check for override first
             if let override = dogOverrides.first(where: {
                 calendar.isDate($0.date, inSameDayAs: normalizedDate)
@@ -250,7 +257,13 @@ private struct DogCalendarDayCell: View {
         return formatter
     }
 
-    var body: some View {
+    // MARK: - Computed Properties
+
+    private var shouldShowNavigationLink: Bool {
+        isPast && scheduleState.isCompleted
+    }
+
+    private var cellContent: some View {
         VStack(spacing: 4) {
             Text(dayFormatter.string(from: date))
                 .font(isToday ? .headline : .subheadline)
@@ -288,9 +301,22 @@ private struct DogCalendarDayCell: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(isToday ? Color.blue : Color.clear, lineWidth: 2)
         )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onTap(date)
+    }
+
+    var body: some View {
+        if shouldShowNavigationLink {
+            NavigationLink {
+                DayDetailView(date: date)
+            } label: {
+                cellContent
+            }
+            .buttonStyle(.plain)
+        } else {
+            cellContent
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onTap(date)
+                }
         }
     }
 }

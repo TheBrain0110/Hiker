@@ -19,6 +19,11 @@ struct CompleteHikeSheet: View {
     @Query(filter: #Predicate<HikingLocation> { $0.isActive }, sort: \HikingLocation.name)
     private var hikingLocations: [HikingLocation]
 
+    @Query(filter: #Predicate<Dog> { $0.isActive }, sort: \Dog.name)
+    private var activeDogs: [Dog]
+
+    @Query private var scheduleOverrides: [ScheduleOverride]
+
     @State private var attendingDogs: Set<UUID>
     @State private var selectedTrail: HikingLocation?
     @State private var notes: String = ""
@@ -122,6 +127,34 @@ struct CompleteHikeSheet: View {
     private func completeHike() {
         isSaving = true
 
+        // Find schedule overrides for this date
+        let normalizedDate = Calendar.current.startOfDay(for: date)
+        let overridesForDate = scheduleOverrides.filter { override in
+            Calendar.current.isDate(override.date, inSameDayAs: normalizedDate)
+        }
+
+        // Find removed dogs (dogs with .isAbsent override that would have been scheduled)
+        var removedDogIds: [UUID] = []
+        var removedDogNames: [String] = []
+
+        if let dayOfWeek = normalizedDate.dayOfWeek {
+            for dog in activeDogs {
+                // Check if dog is in regular schedule for this day
+                let isInRegularSchedule = dog.regularSchedule.contains(dayOfWeek)
+
+                // Check if dog has .isAbsent override
+                let hasAbsentOverride = overridesForDate.contains { override in
+                    override.dogId == dog.id && override.type == .isAbsent
+                }
+
+                // If in regular schedule but has absent override, they were removed
+                if isInRegularSchedule && hasAbsentOverride {
+                    removedDogIds.append(dog.id)
+                    removedDogNames.append(dog.name)
+                }
+            }
+        }
+
         // Create CompletedHike record
         let completedHike = CompletedHike(
             date: date,
@@ -131,13 +164,22 @@ struct CompleteHikeSheet: View {
             trailLocationId: selectedTrail?.id,
             trailName: selectedTrail?.name,
             totalDistance: hike.totalDistance,
-            notes: notes.isEmpty ? nil : notes
+            notes: notes.isEmpty ? nil : notes,
+            removedDogIds: removedDogIds,
+            removedDogNames: removedDogNames
         )
 
         modelContext.insert(completedHike)
 
         // Create DogAttendance records for attending dogs
-        for (index, dog) in hike.dogs.enumerated() where attendingDogs.contains(dog.id) {
+        let attendingDogsList = hike.dogs.filter { attendingDogs.contains($0.id) }
+
+        for (index, dog) in attendingDogsList.enumerated() {
+            // Check if this dog was added via .isPresent override
+            let hasAddedOverride = overridesForDate.contains { override in
+                override.dogId == dog.id && override.type == .isPresent
+            }
+
             let attendance = DogAttendance(
                 dogId: dog.id,
                 dogName: dog.name,
@@ -145,7 +187,8 @@ struct CompleteHikeSheet: View {
                 pickupLatitude: dog.location?.latitude,
                 pickupLongitude: dog.location?.longitude,
                 pickupAddress: dog.locationAddress,
-                amountCharged: dog.paymentRate
+                amountCharged: dog.paymentRate,
+                wasAddedViaOverride: hasAddedOverride
             )
 
             attendance.completedHike = completedHike

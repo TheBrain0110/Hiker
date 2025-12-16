@@ -28,6 +28,10 @@ final class CompletedHike {
     var totalDistance: Double               // Actual route distance
     var notes: String?                      // Post-hike notes
 
+    // Schedule override tracking (dogs that were removed via .isAbsent override)
+    var removedDogIds: [UUID] = []          // IDs of dogs with .isAbsent override
+    var removedDogNames: [String] = []      // Denormalized names for history
+
     // Relationships
     @Relationship(deleteRule: .cascade, inverse: \DogAttendance.completedHike)
     var dogAttendances: [DogAttendance] = []
@@ -42,7 +46,9 @@ final class CompletedHike {
         trailLocationId: UUID? = nil,
         trailName: String? = nil,
         totalDistance: Double = 0,
-        notes: String? = nil
+        notes: String? = nil,
+        removedDogIds: [UUID] = [],
+        removedDogNames: [String] = []
     ) {
         self.id = id
         self.date = Calendar.current.startOfDay(for: date)
@@ -54,6 +60,8 @@ final class CompletedHike {
         self.trailName = trailName
         self.totalDistance = totalDistance
         self.notes = notes
+        self.removedDogIds = removedDogIds
+        self.removedDogNames = removedDogNames
     }
 
     // Computed property: Reconstruct route coordinates

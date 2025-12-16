@@ -80,8 +80,10 @@ The app uses **SwiftData** with iCloud CloudKit sync. All models are located in 
    - Accessed via computed property `regularSchedule: [DayOfWeek]`
 
 4. **Historical Hike Storage**
-   - `CompletedHike` stores actual hike completion data
+   - `CompletedHike` stores actual hike completion data with override tracking
    - `DogAttendance` tracks per-dog participation with denormalized snapshots
+   - **Override Persistence:** `DogAttendance.wasAddedViaOverride` tracks dogs added via `.isPresent` override
+   - **Removed Dogs:** `CompletedHike.removedDogIds/removedDogNames` tracks dogs with `.isAbsent` overrides
    - Relationships: `CompletedHike` → `[DogAttendance]` (cascade delete)
    - Route storage: Separate `routeLatitudes` and `routeLongitudes` arrays
    - Computed property `route: [CLLocationCoordinate2D]` reconstructs coordinates
@@ -147,12 +149,14 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 - `ScheduleCalendarView.swift` - Monthly grid calendar with indicators
 - `DayRow.swift` - List item showing day summary
 - `DayDetailView.swift` - Full day view with conditional UI and edit mode
-  - **Edit Mode:** Toggle between view/edit modes for schedule management
+  - **Unified Day Content:** Single `dayContent` view handles past/today/future with temporal conditionals
+  - **Retroactive Completion:** Past dates show uncompleted planned hikes with "Mark Complete" option
+  - **Edit Mode:** Toggle between view/edit modes (only shows when pending hikes exist)
   - **iOS Swipe Actions:** Swipe-to-delete dogs from hikes (iOS only)
-  - **Badge System:** Visual indicators for schedule overrides (Added/Removed)
+  - **Badge System:** Visual indicators for schedule overrides (Added/Removed in both planned and completed hikes)
   - **Navigation:** Tap dog rows to navigate to DogDetailView
-- `CompleteHikeSheet.swift` - Modal workflow for marking hikes complete
-- `CompletedHikeCard.swift` - Display component for historical hikes
+- `CompleteHikeSheet.swift` - Modal workflow for marking hikes complete with override persistence
+- `CompletedHikeCard.swift` - Display component for historical hikes with "Added" badges and removed dogs section
 - `MonthNavigationHeader.swift` - Reusable month navigation controls
 - `WeekdayHeader.swift` - Reusable weekday column headers
 
@@ -161,6 +165,9 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 - `DogDetailView.swift` - Edit dog details, schedule, payments, calendar view
   - **Segmented Control:** Switch between weekly pattern editor and calendar view
   - `DogScheduleCalendarView.swift` - Per-dog monthly calendar with interactive override editing
+    - **Reactive Updates:** Green dots appear immediately when hikes marked complete (today or retroactive)
+    - **Non-Editable Completed:** Dates with completed hikes cannot be edited via tapping
+    - **Override Toggle:** Tap future dates to create/remove schedule overrides
   - `EditableWeeklySchedule.swift` - Weekly pattern toggle buttons
 
 **Component Views:**
@@ -244,8 +251,8 @@ DayDetailView implements a toggle-based edit mode for schedule management:
 ```swift
 @State private var isEditing = false
 
-// Toolbar button (only for today/future)
-if !isPast {
+// Toolbar button (only for days with pending hikes)
+if hasPendingHikes {
     Button(isEditing ? "Done" : "Edit") {
         withAnimation {
             isEditing.toggle()
@@ -254,12 +261,13 @@ if !isPast {
 }
 
 // Conditional UI
-if isEditing {
+if isEditing && hasPendingHikes {
     // Show edit controls (remove buttons, "Available to Add" section)
 }
 ```
 
 **Edit Mode Features:**
+- **State-Driven Visibility:** Edit button only appears when there are uncompleted hikes (not just based on date)
 - **iOS Swipe Actions:** Use `#if os(iOS)` for swipe-to-delete gestures
 - **Explicit Buttons:** Remove buttons visible only in edit mode
 - **Progressive Disclosure:** Hide "Available to Add" section until edit mode activated
