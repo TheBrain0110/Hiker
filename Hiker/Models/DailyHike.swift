@@ -9,7 +9,7 @@ import Foundation
 import CoreLocation
 
 /// Represents a computed daily schedule (not persisted)
-/// This is generated from Dog regular schedules + ScheduleExceptions
+/// This is generated from Dog regular schedules + ScheduleOverrides
 struct DailyHike: Identifiable {
     let id = UUID()
     let date: Date

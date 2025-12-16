@@ -349,29 +349,21 @@ struct PaymentHistoryPlaceholder: View {
 }
 
 #Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Client.self, configurations: config)
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
 
-    let client = Client(
-        ownerName: "Sarah Johnson",
-        phone: "902-555-0123",
-        email: "sarah@example.com",
-        address: "123 Main Street, Bedford"
-    )
-    container.mainContext.insert(client)
-
-    let dog = Dog(
-        name: "Buddy",
-        client: client,
-        locationAddress: "123 Main Street, Bedford",
-        regularSchedule: [.monday, .wednesday, .friday],
-        paymentRate: 25.00,
-        notes: "Loves playing fetch. Gets along well with other dogs."
-    )
-    container.mainContext.insert(dog)
+    // Get first dog from sample data (Maya)
+    let descriptor = FetchDescriptor<Dog>(sortBy: [SortDescriptor(\.name)])
+    let dogs = try! container.mainContext.fetch(descriptor)
 
     return NavigationStack {
-        DogDetailView(dog: dog)
+        if let dog = dogs.first {
+            DogDetailView(dog: dog)
+        } else {
+            Text("No dogs available")
+        }
     }
     .modelContainer(container)
 }

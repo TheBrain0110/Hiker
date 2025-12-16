@@ -24,9 +24,11 @@ struct Badge: View {
 }
 
 #Preview {
-    HStack {
+    HStack(spacing: 8) {
         Badge(text: "Inactive", color: .gray)
-        Badge(text: "Warning", color: .orange)
-        Badge(text: "Active", color: .green)
+        Badge(text: "Overdue", color: .red)
+        Badge(text: "Added", color: .green)
+        Badge(text: "Removed", color: .red)
     }
+    .padding()
 }

@@ -928,7 +928,13 @@ private struct PlannedHikeDogRow: View {
 // FutureHikeCard removed - now using PlannedHikeCard for both today and future days
 
 #Preview {
-    NavigationStack {
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
+
+    return NavigationStack {
         DayDetailView(date: Date())
     }
+    .modelContainer(container)
 }

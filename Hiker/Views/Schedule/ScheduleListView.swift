@@ -123,11 +123,10 @@ struct ScheduleListView: View {
 }
 
 #Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(
-        for: Client.self, Dog.self, CompletedHike.self, DogAttendance.self,
-        configurations: config
-    )
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
 
     return NavigationStack {
         ScheduleListView()

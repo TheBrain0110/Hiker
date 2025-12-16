@@ -333,24 +333,22 @@ private struct DogScheduleState {
 }
 
 #Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(
-        for: Dog.self, Client.self,
-        configurations: config
-    )
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
 
-    let client = Client(ownerName: "Test Owner", address: "123 Test St")
-    let dog = Dog(
-        name: "Buddy",
-        client: client,
-        locationAddress: "123 Test St",
-        regularSchedule: [.monday, .wednesday, .friday]
-    )
+    // Get first dog from sample data (Maya)
+    let descriptor = FetchDescriptor<Dog>(sortBy: [SortDescriptor(\.name)])
+    let dogs = try! container.mainContext.fetch(descriptor)
 
-    container.mainContext.insert(client)
-    container.mainContext.insert(dog)
-
-    return DogScheduleCalendarView(dog: dog)
-        .modelContainer(container)
-        .frame(height: 380)
+    return Group {
+        if let dog = dogs.first {
+            DogScheduleCalendarView(dog: dog)
+        } else {
+            Text("No dogs available")
+        }
+    }
+    .modelContainer(container)
+    .frame(height: 380)
 }

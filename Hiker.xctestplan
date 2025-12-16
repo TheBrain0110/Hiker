@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "D7B9F62F-002B-417E-BC7B-2359D16645CF",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Hiker.xcodeproj",
+      "identifier" : "4F4299FA2EBDAAA900492FFD",
+      "name" : "Hiker"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Hiker.xcodeproj",
+        "identifier" : "4F429A0B2EBDAAAA00492FFD",
+        "name" : "HikerTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Hiker.xcodeproj",
+        "identifier" : "4F429A152EBDAAAA00492FFD",
+        "name" : "HikerUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

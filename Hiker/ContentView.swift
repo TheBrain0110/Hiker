@@ -146,25 +146,12 @@ struct DataDetailView: View {
     }
 }
 
-// MARK: - Placeholder Tab
-
-struct PlaceholderTab: View {
-    let title: String
-    let icon: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                "\(title) View",
-                systemImage: icon,
-                description: Text("This feature is coming soon.")
-            )
-            .navigationTitle(title)
-        }
-    }
-}
-
 #Preview {
-    ContentView()
-        .modelContainer(for: Client.self, inMemory: true)
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
+
+    return ContentView()
+        .modelContainer(container)
 }

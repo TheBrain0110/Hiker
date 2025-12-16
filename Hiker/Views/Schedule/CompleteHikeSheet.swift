@@ -207,28 +207,21 @@ struct CompleteHikeSheet: View {
 }
 
 #Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(
-        for: Dog.self, HikingLocation.self,
-        configurations: config
-    )
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
 
-    let client = Client(ownerName: "Test Owner", address: "123 Test St")
-    let dog1 = Dog(name: "Buddy", client: client, locationAddress: "123 Test St", regularSchedule: [.monday])
-    let dog2 = Dog(name: "Max", client: client, locationAddress: "456 Oak Ave", regularSchedule: [.monday])
+    // Get a hike from sample data
+    let manager = DailyHikeManager(modelContext: container.mainContext)
+    let schedule = manager.dailySchedule(for: Date())
 
-    container.mainContext.insert(client)
-    container.mainContext.insert(dog1)
-    container.mainContext.insert(dog2)
-
-    let hike = DailyHike.Hike(
-        number: 1,
-        dogs: [dog1, dog2],
-        route: [],
-        totalDistance: 5000,
-        suggestedTrail: nil
-    )
-
-    return CompleteHikeSheet(date: Date(), hike: hike)
-        .modelContainer(container)
+    return Group {
+        if let hike = schedule.hike1 {
+            CompleteHikeSheet(date: Date(), hike: hike)
+        } else {
+            Text("No hike available")
+        }
+    }
+    .modelContainer(container)
 }

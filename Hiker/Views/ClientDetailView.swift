@@ -406,28 +406,21 @@ struct DayToggle: View {
 }
 
 #Preview {
-    let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Client.self, configurations: config)
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
 
-    let client = Client(
-        ownerName: "Sarah Johnson",
-        phone: "902-555-0123",
-        email: "sarah@example.com",
-        address: "123 Main Street, Bedford"
-    )
-    container.mainContext.insert(client)
-
-    let dog = Dog(
-        name: "Buddy",
-        client: client,
-        locationAddress: "123 Main Street, Bedford",
-        regularSchedule: [.monday, .wednesday, .friday],
-        paymentRate: 25.00
-    )
-    container.mainContext.insert(dog)
+    // Get first client from sample data (Maya's Owner)
+    let descriptor = FetchDescriptor<Client>(sortBy: [SortDescriptor(\.ownerName)])
+    let clients = try! container.mainContext.fetch(descriptor)
 
     return NavigationStack {
-        ClientDetailView(client: client)
+        if let client = clients.first {
+            ClientDetailView(client: client)
+        } else {
+            Text("No clients available")
+        }
     }
     .modelContainer(container)
 }

@@ -148,12 +148,40 @@ struct DayRow: View {
 }
 
 #Preview {
-    List {
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
+
+    // Get sample data for preview
+    let manager = DailyHikeManager(modelContext: container.mainContext)
+    let schedule = manager.dailySchedule(for: Date())
+    let dogs = (schedule.hike1?.dogs ?? []) + (schedule.hike2?.dogs ?? [])
+
+    return List {
+        // Today with scheduled dogs
         DayRow(
             date: Date(),
             isToday: true,
             completedHikes: [],
+            scheduledDogs: dogs
+        )
+
+        // Past day (completed hike shown from sample data)
+        DayRow(
+            date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
+            isToday: false,
+            completedHikes: [],
             scheduledDogs: []
         )
+
+        // Future day
+        DayRow(
+            date: Calendar.current.date(byAdding: .day, value: 2, to: Date())!,
+            isToday: false,
+            completedHikes: [],
+            scheduledDogs: Array(dogs.prefix(3))
+        )
     }
+    .modelContainer(container)
 }

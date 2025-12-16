@@ -236,6 +236,11 @@ struct AddClientView: View {
 }
 
 #Preview {
-    ClientsView()
-        .modelContainer(for: Client.self, inMemory: true)
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(for: schema, configurations: [config])
+    SampleData.createSampleData(in: container.mainContext)
+
+    return ClientsView()
+        .modelContainer(container)
 }
