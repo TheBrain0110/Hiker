@@ -59,6 +59,14 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Configuration") {
+                    NavigationLink {
+                        HikingLocationsView()
+                    } label: {
+                        Label("Hiking Locations", systemImage: "figure.hiking")
+                    }
+                }
+
                 if clients.isEmpty {
                     Section {
                         Button(action: loadSampleData) {

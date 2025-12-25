@@ -462,6 +462,8 @@ Hiker/
 │   │   ├── Badge.swift
 │   │   ├── MonthNavigationHeader.swift
 │   │   └── WeekdayHeader.swift
+│   ├── Settings/            # Settings and configuration views
+│   │   └── HikingLocationsView.swift  # CRUD for hiking trail locations
 │   └── HikeCard.swift
 └── Extensions/
     └── Date+Extensions.swift

@@ -382,13 +382,15 @@ struct DailyHike {
 10. Hiking trail location management UI
 11. Payment overdue alerts (in-app)
 12. Map view improvements (street names, better visualization)
+13. Widgets - Home screen widget showing today's schedule at a glance
+14. Siri support - Voice commands for checking schedule, updating dogs' schedule status, marking hikes complete
 
 ### Tier 3 (Nice-to-Have, Lower Priority)
-13. Trip logging/history (which dogs hiked, weather, notes)
-14. Advanced analytics (busiest days, revenue trends)
-15. Photo uploads or dog profiles
-16. Data export/backup
-17. Multi-user support (unlikely for this use case)
+15. Trip logging/history (which dogs hiked, weather, notes)
+16. Advanced analytics (busiest days, revenue trends)
+17. Photo uploads or dog profiles
+18. Data export/backup
+19. Multi-user support (unlikely for this use case)
 
 ---
 
