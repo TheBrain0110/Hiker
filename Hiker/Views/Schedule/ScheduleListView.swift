@@ -23,18 +23,66 @@ struct ScheduleListView: View {
 
     @Query private var scheduleOverrides: [ScheduleOverride]
 
-    private let daysBack = 30
-    private let daysForward = 60
+    // Infinite scroll state
+    @State private var visibleDates: [Date] = []
+    @State private var earliestLoadedDate: Date?
+    @State private var latestLoadedDate: Date?
 
-    // Generate array of all dates to display
-    private var allDates: [Date] {
+    private let initialDaysBack = 7
+    private let initialDaysForward = 14
+    private let paginationSize = 30  // Load 30 days at a time when scrolling
+
+    private var today: Date {
+        Calendar.current.startOfDay(for: Date())
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            List {
+                ForEach(visibleDates, id: \.self) { date in
+                    DayRow(
+                        date: date,
+                        isToday: Calendar.current.isDate(date, inSameDayAs: today),
+                        completedHikes: completedHikesFor(date: date),
+                        scheduledDogs: scheduledDogsFor(date: date),
+                        hasPersistedHike: hasPersistedHikeFor(date: date)
+                    )
+                    .id(date)
+                    .listRowBackground(
+                        Calendar.current.isDate(date, inSameDayAs: today) ?
+                        Color.blue.opacity(0.1) : nil
+                    )
+                    .onAppear {
+                        // Load more dates when scrolling near edges
+                        checkAndLoadMoreDates(for: date)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .onAppear {
+                if visibleDates.isEmpty {
+                    initializeDates()
+                    loadHikesIfNeeded()
+                    // Scroll to today on appear
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation {
+                            proxy.scrollTo(today, anchor: .center)
+                        }
+                    }
+                }
+            }
+            // Note: Removed onChange handlers - stale flags handle schedule changes
+        }
+    }
+
+    // MARK: - Helper Methods
+
+    private func initializeDates() {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
         var dates: [Date] = []
 
         // Past days (newest first)
-        for i in (1...daysBack).reversed() {
+        for i in (1...initialDaysBack).reversed() {
             if let date = calendar.date(byAdding: .day, value: -i, to: today) {
                 dates.append(date)
             }
@@ -44,51 +92,72 @@ struct ScheduleListView: View {
         dates.append(today)
 
         // Future days
-        for i in 1...daysForward {
+        for i in 1...initialDaysForward {
             if let date = calendar.date(byAdding: .day, value: i, to: today) {
                 dates.append(date)
             }
         }
 
-        return dates
+        visibleDates = dates
+        earliestLoadedDate = dates.first
+        latestLoadedDate = dates.last
     }
 
-    private var today: Date {
-        Calendar.current.startOfDay(for: Date())
-    }
+    private func checkAndLoadMoreDates(for date: Date) {
+        // Load more past dates when scrolling near the top (within 5 items)
+        if let earliest = earliestLoadedDate,
+           let index = visibleDates.firstIndex(of: date),
+           index < 5,
+           date == earliest {
+            loadMorePastDates()
+        }
 
-    var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                ForEach(allDates, id: \.self) { date in
-                    DayRow(
-                        date: date,
-                        isToday: Calendar.current.isDate(date, inSameDayAs: today),
-                        completedHikes: completedHikesFor(date: date),
-                        scheduledDogs: scheduledDogsFor(date: date)
-                    )
-                    .id(date)
-                    .listRowBackground(
-                        Calendar.current.isDate(date, inSameDayAs: today) ?
-                        Color.blue.opacity(0.1) : nil
-                    )
-                }
-            }
-            .listStyle(.plain)
-            .onAppear {
-                loadHikesIfNeeded()
-                // Scroll to today on appear
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    withAnimation {
-                        proxy.scrollTo(today, anchor: .center)
-                    }
-                }
-            }
-            // Note: Removed onChange handlers - stale flags handle schedule changes
+        // Load more future dates when scrolling near the bottom (within 5 items)
+        if let latest = latestLoadedDate,
+           let index = visibleDates.firstIndex(of: date),
+           index >= visibleDates.count - 5,
+           date == latest {
+            loadMoreFutureDates()
         }
     }
 
-    // MARK: - Helper Methods
+    private func loadMorePastDates() {
+        guard let earliest = earliestLoadedDate else { return }
+        let calendar = Calendar.current
+        var newDates: [Date] = []
+
+        // Load `paginationSize` more days before the earliest date
+        for i in (1...paginationSize).reversed() {
+            if let date = calendar.date(byAdding: .day, value: -i, to: earliest) {
+                newDates.append(date)
+            }
+        }
+
+        guard !newDates.isEmpty else { return }
+
+        // Prepend to visible dates
+        visibleDates.insert(contentsOf: newDates, at: 0)
+        earliestLoadedDate = newDates.first
+    }
+
+    private func loadMoreFutureDates() {
+        guard let latest = latestLoadedDate else { return }
+        let calendar = Calendar.current
+        var newDates: [Date] = []
+
+        // Load `paginationSize` more days after the latest date
+        for i in 1...paginationSize {
+            if let date = calendar.date(byAdding: .day, value: i, to: latest) {
+                newDates.append(date)
+            }
+        }
+
+        guard !newDates.isEmpty else { return }
+
+        // Append to visible dates
+        visibleDates.append(contentsOf: newDates)
+        latestLoadedDate = newDates.last
+    }
 
     private func loadHikesIfNeeded() {
         let manager = DailyHikeManager(modelContext: modelContext)
@@ -112,17 +181,25 @@ struct ScheduleListView: View {
     }
 
     private func scheduledDogsFor(date: Date) -> [Dog] {
-        // Only show dogs if a hike already exists (was viewed before)
         let hikes = hikesFor(date: date).filter { $0.isPlanned }
 
-        // If no existing planned hike, return empty (don't compute schedule)
-        guard !hikes.isEmpty else { return [] }
+        // If a planned hike exists, use its data (includes any overrides)
+        if !hikes.isEmpty {
+            // Get all dog IDs from participations
+            let dogIds = Set(hikes.flatMap { $0.participations.map { $0.dogId } })
 
-        // Get all dog IDs from participations
-        let dogIds = Set(hikes.flatMap { $0.participations.map { $0.dogId } })
+            // Return dogs that match those IDs
+            return activeDogs.filter { dogIds.contains($0.id) }
+        }
 
-        // Return dogs that match those IDs
-        return activeDogs.filter { dogIds.contains($0.id) }
+        // No existing hike - compute ephemeral preview from regular schedules
+        let manager = DailyHikeManager(modelContext: modelContext)
+        return manager.getExpectedDogs(for: date)
+    }
+
+    private func hasPersistedHikeFor(date: Date) -> Bool {
+        let hikes = hikesFor(date: date).filter { $0.isPlanned }
+        return !hikes.isEmpty
     }
 }
 

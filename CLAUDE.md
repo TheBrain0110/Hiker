@@ -105,6 +105,12 @@ The **DailyHikeManager** computes daily schedules by combining:
 1. Each dog's `regularSchedule` (their normal Mon-Fri pattern)
 2. `ScheduleOverride` records for specific dates (overrides take precedence)
 
+**Lazy Loading & Ephemeral Previews:**
+- `getDailyHikes(for:)` - Returns persistent DailyHike instances, creating them if needed (full route optimization, trail selection)
+- `getExpectedDogs(for:)` - Returns ephemeral list of expected dogs based on regular schedules without creating DailyHike (used for schedule previews)
+- `fetchExistingHikes(for:)` - Fetches existing DailyHikes without creating new ones
+- Schedule views use ephemeral previews for days not yet opened, showing expected dogs without computing full hikes
+
 **Override Logic:**
 - If a `ScheduleOverride` exists for a dog on a date, it **overrides** the regular schedule
 - `OverrideType.isPresent` = dog is scheduled (even if not in regular schedule)
@@ -194,9 +200,15 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 3. **Settings** - Sample data loading, data management
 
 **Schedule View Components:**
-- `ScheduleListView.swift` - Scrolling day timeline (30 days past, 60 days future)
+- `ScheduleListView.swift` - **Infinite scroll timeline** with lazy loading
+  - **Initial Load:** 7 days past + today + 14 days future (22 days)
+  - **Pagination:** Automatically loads 30 more days when scrolling near edges
+  - **Ephemeral Previews:** Shows expected dogs from regular schedules for days without persistent DailyHike
+  - **Color Coding:** Orange badges for persistent hikes, yellow for ephemeral previews
+  - Scrolls to today on initial load, unlimited range in both directions
 - `ScheduleCalendarView.swift` - Monthly grid calendar with indicators
-- `DayRow.swift` - List item showing day summary
+  - **Color Coding:** Orange dots for persistent hikes, yellow for ephemeral previews, green for completed
+- `DayRow.swift` - List item showing day summary with color-coded badges
 - `DayDetailView.swift` - **Main orchestrator** (384 lines, refactored Dec 2025)
   - **Unified Day Content:** Single `dayContent` view handles past/today/future with temporal conditionals
   - **Retroactive Completion:** Past dates show uncompleted planned hikes with "Mark Complete" option
@@ -343,8 +355,9 @@ dog.regularSchedule = [.tuesday]
 **What CANNOT Be Tested (requires ModelContext):**
 - Relationship navigation (`client.dogs`, `dog.payments`)
 - Queries and fetches
-- `DailyHikeManager` (queries dogs and overrides)
+- `DailyHikeManager` (queries dogs and overrides, including `getExpectedDogs(for:)`)
 - `DayScheduleManager` (mutates SwiftData models, same cross-module issue)
+- Infinite scroll pagination logic in `ScheduleListView` (SwiftUI view logic)
 - Integration tests that persist and retrieve data
 
 **Workarounds:**
@@ -473,8 +486,21 @@ NavigationStack {
 ```
 
 ### Color System
+
+**Schedule View Color Coding:**
+- **🟢 Green** - Completed hikes (past dates with hikes marked complete)
+- **🔵 Blue** - Today (current date highlight/badge)
+- **🟠 Orange** - Persistent DailyHike instances (fully computed with optimized routes, opened at least once)
+- **🟡 Yellow** - Ephemeral previews (expected from regular schedules, not yet opened/computed)
+- **⚪ Gray** - No schedule/empty days
+
+**Other UI Colors:**
 - Use semantic colors: `.background.secondary` for cards
-- System colors for status: `.green` (paid), `.red` (overdue), `.orange` (warning)
+- Status colors: `.green` (paid), `.red` (overdue), `.orange` (warning)
+
+**Color Behavior:**
+- When a day is first opened in DayDetailView, a DailyHike is created and the indicator changes from yellow → orange
+- This provides visual feedback about which days have been fully planned vs. just showing expected schedules
 
 ## Known Design Decisions
 
@@ -532,6 +558,25 @@ NavigationStack {
   - `DayScheduleManager.swift` - Dog add/remove, route operations, override helpers
   - `CompletedHikeCard.swift` + `CompletedHikeDogRow.swift` - Completed hike display
   - `PlannedHikeCard.swift` + `PlannedHikeDogRow.swift` - Planned hike with edit capabilities
+
+### Why Ephemeral Schedule Previews & Infinite Scroll? (December 2025)
+- **Problem:** After implementing lazy-loaded persistent DailyHikes, all future days showed "no dogs scheduled" until opened
+- **Solution:** Two-tier system for schedule display
+  - **Ephemeral Previews** - Compute expected dogs from regular schedules without creating DailyHike
+  - **Persistent Hikes** - Full DailyHike instances with routes, trail selection, customizations
+- **Implementation:**
+  - `DailyHikeManager.getExpectedDogs(for:)` - Lightweight computation of scheduled dogs
+  - Views check for existing DailyHike first, fall back to ephemeral preview if none exists
+  - Visual distinction via color coding (orange = persistent, yellow = ephemeral)
+- **Infinite Scroll Benefits:**
+  - **Performance:** Initial load reduced from 91 days to 22 days
+  - **Flexibility:** Users can scroll unlimited past/future dates
+  - **Memory Efficiency:** Only loads dates as needed (30-day chunks)
+  - **UX:** Seamless automatic pagination when scrolling near edges
+- **Trade-offs:**
+  - Ephemeral previews don't show overrides (by design - overrides trigger DailyHike creation)
+  - Color coding required to distinguish preview vs. computed states
+  - More complex view logic, but better performance and UX
 
 ## Future Enhancements
 

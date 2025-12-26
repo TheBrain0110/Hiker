@@ -33,6 +33,8 @@ import CoreLocation
 /// - Schedule override integration (.isPresent adds, .isAbsent removes)
 /// - Trail suggestion (finds closest trail to last pickup)
 /// - Route optimization integration
+/// - Ephemeral preview generation (`getExpectedDogs` returns dogs without creating DailyHike)
+/// - Lazy loading (first call creates DailyHike, subsequent calls return cached version)
 ///
 /// ## How to Run These Tests
 ///
@@ -57,6 +59,8 @@ import CoreLocation
 /// DailyHikeManager has been updated to use persistent DailyHike models:
 /// - `getDailyHikes(for:)` returns [DailyHike] - lazy-loads or returns existing
 /// - `getOrCreateDailyHike(for:hikeNumber:)` returns single hike
+/// - `getExpectedDogs(for:)` returns [Dog] - ephemeral preview without creating DailyHike
+/// - `fetchExistingHikes(for:)` returns [DailyHike] - fetch without creating new ones
 /// - `resetDailyHike(_:)` deletes a hike (caller regenerates)
 /// - `markAffectedHikesStale(for:after:)` sets `staleReason = .scheduleChanged`
 ///

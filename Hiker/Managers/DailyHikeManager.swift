@@ -109,6 +109,17 @@ class DailyHikeManager {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
+    /// Get expected dogs for a date based on regular schedules (without creating DailyHike)
+    /// Used for ephemeral previews in schedule views
+    func getExpectedDogs(for date: Date) -> [Dog] {
+        guard let dayOfWeek = date.dayOfWeek else {
+            // Weekend - no regular hikes
+            return []
+        }
+
+        return getScheduledDogs(for: date, dayOfWeek: dayOfWeek)
+    }
+
     // MARK: - Private Helpers
 
     /// Fetch existing hike for a specific date and hike number

@@ -13,6 +13,7 @@ struct DayRow: View {
     let isToday: Bool
     let completedHikes: [DailyHike]
     let scheduledDogs: [Dog]
+    let hasPersistedHike: Bool  // True if DailyHike instance exists, false for ephemeral preview
 
     private var isPast: Bool {
         date < Calendar.current.startOfDay(for: Date())
@@ -109,7 +110,11 @@ struct DayRow: View {
         } else if isPast {
             return completedHikes.isEmpty ? .gray.opacity(0.3) : .green.opacity(0.7)
         } else {
-            return scheduledDogs.isEmpty ? .gray.opacity(0.3) : .orange.opacity(0.7)
+            if scheduledDogs.isEmpty {
+                return .gray.opacity(0.3)
+            }
+            // Different colors for persisted vs ephemeral
+            return hasPersistedHike ? .orange.opacity(0.7) : .yellow.opacity(0.7)
         }
     }
 
@@ -163,12 +168,13 @@ struct DayRow: View {
     let allDogs = (try? container.mainContext.fetch(dogDescriptor)) ?? []
 
     return List {
-        // Today with scheduled dogs
+        // Today with scheduled dogs (persisted)
         DayRow(
             date: Date(),
             isToday: true,
             completedHikes: completedHikes,
-            scheduledDogs: Array(allDogs.prefix(5))
+            scheduledDogs: Array(allDogs.prefix(5)),
+            hasPersistedHike: true
         )
 
         // Past day (completed hike shown from sample data)
@@ -176,15 +182,26 @@ struct DayRow: View {
             date: Calendar.current.date(byAdding: .day, value: -1, to: Date())!,
             isToday: false,
             completedHikes: [],
-            scheduledDogs: []
+            scheduledDogs: [],
+            hasPersistedHike: false
         )
 
-        // Future day
+        // Future day with persisted hike
         DayRow(
             date: Calendar.current.date(byAdding: .day, value: 2, to: Date())!,
             isToday: false,
             completedHikes: [],
-            scheduledDogs: Array(allDogs.prefix(3))
+            scheduledDogs: Array(allDogs.prefix(3)),
+            hasPersistedHike: true
+        )
+
+        // Future day with ephemeral preview
+        DayRow(
+            date: Calendar.current.date(byAdding: .day, value: 5, to: Date())!,
+            isToday: false,
+            completedHikes: [],
+            scheduledDogs: Array(allDogs.prefix(2)),
+            hasPersistedHike: false
         )
     }
     .modelContainer(container)

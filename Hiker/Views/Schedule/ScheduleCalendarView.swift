@@ -97,6 +97,8 @@ struct ScheduleCalendarView: View {
 // MARK: - Month Grid View
 
 struct MonthGridView: View {
+    @Environment(\.modelContext) private var modelContext
+
     let month: Date
     let allDailyHikes: [DailyHike]
     let completedHikes: [DailyHike]
@@ -147,7 +149,8 @@ struct MonthGridView: View {
                         isToday: calendar.isDate(date, inSameDayAs: today),
                         isCurrentMonth: calendar.isDate(date, equalTo: month, toGranularity: .month),
                         hikes: hikesFor(date: date),
-                        completedHikes: completedHikesFor(date: date)
+                        completedHikes: completedHikesFor(date: date),
+                        hasExpectedDogs: hasExpectedDogsFor(date: date)
                     )
                 } else {
                     Color.clear
@@ -168,6 +171,19 @@ struct MonthGridView: View {
             calendar.isDate(hike.date, inSameDayAs: date)
         }
     }
+
+    private func hasExpectedDogsFor(date: Date) -> Bool {
+        // If there are already hikes for this date, don't compute expected
+        let existingHikes = hikesFor(date: date)
+        if !existingHikes.isEmpty {
+            return false  // Let the cell check actual hikes instead
+        }
+
+        // Compute ephemeral preview
+        let manager = DailyHikeManager(modelContext: modelContext)
+        let expectedDogs = manager.getExpectedDogs(for: date)
+        return !expectedDogs.isEmpty
+    }
 }
 
 // MARK: - Calendar Day Cell
@@ -178,6 +194,7 @@ struct CalendarDayCell: View {
     let isCurrentMonth: Bool
     let hikes: [DailyHike]
     let completedHikes: [DailyHike]
+    let hasExpectedDogs: Bool  // Ephemeral preview from regular schedules
 
     private var dayFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -186,11 +203,28 @@ struct CalendarDayCell: View {
     }
 
     private var hasScheduledDogs: Bool {
-        hikes.contains { $0.isPlanned && !$0.participations.isEmpty }
+        // Check actual hikes first
+        if hikes.contains(where: { $0.isPlanned && !$0.participations.isEmpty }) {
+            return true
+        }
+        // Fall back to expected dogs (ephemeral preview)
+        return hasExpectedDogs
     }
 
     private var hasCompletedHikes: Bool {
         !completedHikes.isEmpty
+    }
+
+    private var scheduleIndicatorColor: Color {
+        // If there's a persisted hike, use orange
+        if hikes.contains(where: { $0.isPlanned && !$0.participations.isEmpty }) {
+            return .orange
+        }
+        // If it's just an ephemeral preview, use yellow
+        if hasExpectedDogs {
+            return .yellow
+        }
+        return .clear
     }
 
     var body: some View {
@@ -211,7 +245,7 @@ struct CalendarDayCell: View {
                             .foregroundStyle(.green)
                     } else if hasScheduledDogs {
                         Circle()
-                            .fill(.orange)
+                            .fill(scheduleIndicatorColor)
                             .frame(width: 6, height: 6)
                     }
                 }
