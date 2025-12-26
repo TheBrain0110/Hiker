@@ -131,6 +131,44 @@ The **DailyHikeManager** computes daily schedules by combining:
 - Fetch overrides with date range predicate: `date >= startOfDay && date < nextDay`
 - Weekend handling: Current implementation returns empty schedule for weekends (no `DayOfWeek` enum for Sat/Sun)
 
+### Day Schedule Manager (`DayScheduleManager.swift`)
+
+**Created:** December 2025 (extracted from DayDetailView)
+
+The **DayScheduleManager** handles all schedule manipulation logic for a specific day. Business logic extracted from views for better testability and separation of concerns.
+
+**Key Responsibilities:**
+1. **Dog Management** - Add/remove dogs with override state machine
+2. **Route Operations** - Recalculate routes, apply schedule changes, reset to defaults
+3. **Override Helpers** - Check for added/absent overrides
+4. **Available Dogs** - Compute which dogs can be added to hikes
+
+**Main Methods:**
+```swift
+@MainActor
+class DayScheduleManager {
+    // Dog Add/Remove with Override State Machine
+    func addDog(_ dog: Dog, to plannedHikes: [DailyHike], on date: Date, existingOverrides: [ScheduleOverride])
+    func removeDog(_ dogId: UUID, from hike: DailyHike, on date: Date, activeDogs: [Dog], existingOverrides: [ScheduleOverride])
+
+    // Route Operations
+    func recalculateRoute(for hike: DailyHike)  // Re-optimize route, dog list unchanged
+    func applyScheduleChanges(for hike: DailyHike)  // Sync dog list with schedule
+    func resetToSchedule(for date: Date, existingHikes: [DailyHike], existingOverrides: [ScheduleOverride])
+
+    // Helpers
+    func hasAddedOverride(dogId: UUID, on date: Date, overrides: [ScheduleOverride]) -> Bool
+    func hasAbsentOverride(dogId: UUID, on date: Date, overrides: [ScheduleOverride]) -> Bool
+    func getAvailableDogs(allActiveDogs: [Dog], plannedHikes: [DailyHike]) -> [Dog]
+}
+```
+
+**Usage Example:**
+```swift
+let manager = DayScheduleManager(modelContext: modelContext)
+manager.addDog(dog, to: plannedHikes, on: date, existingOverrides: overrides)
+```
+
 ### Route Optimization (`RouteOptimizer.swift`)
 
 **Algorithm:** Brute-force TSP solver (optimal for ≤8 dogs per hike)
@@ -159,21 +197,38 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 - `ScheduleListView.swift` - Scrolling day timeline (30 days past, 60 days future)
 - `ScheduleCalendarView.swift` - Monthly grid calendar with indicators
 - `DayRow.swift` - List item showing day summary
-- `DayDetailView.swift` - Full day view with conditional UI and edit mode
+- `DayDetailView.swift` - **Main orchestrator** (384 lines, refactored Dec 2025)
   - **Unified Day Content:** Single `dayContent` view handles past/today/future with temporal conditionals
   - **Retroactive Completion:** Past dates show uncompleted planned hikes with "Mark Complete" option
   - **Edit Mode:** Toggle between view/edit modes (always visible, disabled when no pending hikes)
-  - **iOS Swipe Actions:** Swipe-to-delete dogs from hikes (iOS only)
   - **Badge System:** Visual indicators for schedule overrides (Added/Removed in both planned and completed hikes)
   - **Navigation:** Tap dog rows to navigate to DogDetailView
   - **Keyboard Navigation:** Arrow keys navigate between days (macOS/iPad with keyboard)
-  - **Context-Aware Stale Actions:**
-    - "Recalculate Route" for `.routeNeedsOptimization` - re-optimizes pickup order, dog list unchanged
-    - "Apply Changes" for `.scheduleChanged` - syncs dog list with current schedule + overrides
-    - "Reset to Schedule" - always available, clears all overrides and regenerates from weekly pattern
+  - **Business Logic:** Delegates to `DayScheduleManager` for all schedule operations
+  - **Components:** Uses extracted components from `DayDetailComponents/` folder
 - `CompleteHikeSheet.swift` - Modal workflow for marking hikes complete with override persistence
 - `MonthNavigationHeader.swift` - Reusable month navigation controls
 - `WeekdayHeader.swift` - Reusable weekday column headers
+
+**DayDetail Components (extracted Dec 2025):**
+- `DayDetailComponents/CompletedHikeCard.swift` - Collapsible completed hike display
+  - Dog list, route map, trail info, notes sections
+  - Uses `CompletedHikeDogRow` for individual dogs
+- `DayDetailComponents/CompletedHikeDogRow.swift` - Individual dog row in completed hike
+  - Navigation to DogDetailView if dog exists
+  - Shows pickup order, name, address, rate, override badges
+- `DayDetailComponents/PlannedHikeCard.swift` - Collapsible planned hike with edit capabilities
+  - **Stale warning banner** with context-aware actions
+  - **Simplified state management:** Single `ConfirmationAction` enum for 3 dialogs
+  - **Context-Aware Actions:**
+    - "Recalculate Route" for `.routeNeedsOptimization` - re-optimizes pickup order, dog list unchanged
+    - "Apply Changes" for `.scheduleChanged` - syncs dog list with current schedule + overrides
+    - "Reset to Schedule" - always available, clears all overrides and regenerates from weekly pattern
+  - Uses `PlannedHikeDogRow` for individual dogs
+- `DayDetailComponents/PlannedHikeDogRow.swift` - Individual dog row in planned hike
+  - **iOS Swipe Actions:** Swipe-to-delete (iOS only)
+  - **Edit Mode:** Remove button (all platforms)
+  - Shows pickup order, name, address, rate, override badges
 
 **Detail Views:**
 - `ClientDetailView.swift` - Edit client info, manage their dogs
@@ -289,6 +344,7 @@ dog.regularSchedule = [.tuesday]
 - Relationship navigation (`client.dogs`, `dog.payments`)
 - Queries and fetches
 - `DailyHikeManager` (queries dogs and overrides)
+- `DayScheduleManager` (mutates SwiftData models, same cross-module issue)
 - Integration tests that persist and retrieve data
 
 **Workarounds:**
@@ -458,6 +514,25 @@ NavigationStack {
   - `.scheduleChanged` - Dog schedule changed, sync dog list with schedule
   - Context-aware UI shows appropriate action button
 
+### DayDetailView Refactoring (December 2025)
+- **Previous State:** Monolithic 1,226-line file with nested private structs and business logic
+- **Problem:** Difficult to navigate, test, and maintain; mixed concerns (views + business logic)
+- **Solution:** Comprehensive refactoring into focused components
+  - **Extracted 4 view components** to `DayDetailComponents/` folder (644 lines)
+  - **Extracted business logic** to `DayScheduleManager` (277 lines)
+  - **Simplified state management** in PlannedHikeCard (3 booleans → 1 enum)
+  - **Result:** Main view reduced to 384 lines (69% reduction)
+- **Benefits:**
+  - **Separation of concerns:** View rendering vs business logic
+  - **Testability:** Manager can be unit tested independently
+  - **Reusability:** Components can be used elsewhere
+  - **Maintainability:** Smaller files easier to understand and modify
+  - **Scalability:** Easier to add new features without touching unrelated code
+- **Files Created:**
+  - `DayScheduleManager.swift` - Dog add/remove, route operations, override helpers
+  - `CompletedHikeCard.swift` + `CompletedHikeDogRow.swift` - Completed hike display
+  - `PlannedHikeCard.swift` + `PlannedHikeDogRow.swift` - Planned hike with edit capabilities
+
 ## Future Enhancements
 
 **Status:** Active Development (December 2025)
@@ -511,7 +586,8 @@ Hiker/
 │   ├── DailyHike.swift      # Unified persistent model + StaleReason enum
 │   └── HikeParticipation.swift  # Per-dog participation tracking
 ├── Managers/
-│   └── DailyHikeManager.swift  # Lazy-load, reset, staleness tracking
+│   ├── DailyHikeManager.swift  # Lazy-load, reset, staleness tracking
+│   └── DayScheduleManager.swift  # Schedule manipulation logic (Dec 2025)
 ├── Utilities/
 │   ├── RouteOptimizer.swift
 │   └── SampleData.swift
@@ -521,8 +597,13 @@ Hiker/
 │   │   ├── ScheduleListView.swift
 │   │   ├── ScheduleCalendarView.swift
 │   │   ├── DayRow.swift
-│   │   ├── DayDetailView.swift  # With edit mode, stale actions, keyboard nav
-│   │   └── CompleteHikeSheet.swift
+│   │   ├── DayDetailView.swift  # Main orchestrator (384 lines, refactored Dec 2025)
+│   │   ├── CompleteHikeSheet.swift
+│   │   └── DayDetailComponents/  # Extracted components (Dec 2025)
+│   │       ├── CompletedHikeCard.swift
+│   │       ├── CompletedHikeDogRow.swift
+│   │       ├── PlannedHikeCard.swift
+│   │       └── PlannedHikeDogRow.swift
 │   ├── Clients/             # Client management views
 │   │   ├── ClientsView.swift
 │   │   ├── ClientDetailView.swift

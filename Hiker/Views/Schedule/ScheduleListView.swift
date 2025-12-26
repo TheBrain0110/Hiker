@@ -84,12 +84,7 @@ struct ScheduleListView: View {
                     }
                 }
             }
-            .onChange(of: activeDogs) {
-                loadHikesIfNeeded()
-            }
-            .onChange(of: scheduleOverrides) {
-                loadHikesIfNeeded()
-            }
+            // Note: Removed onChange handlers - stale flags handle schedule changes
         }
     }
 
@@ -97,10 +92,9 @@ struct ScheduleListView: View {
 
     private func loadHikesIfNeeded() {
         let manager = DailyHikeManager(modelContext: modelContext)
-        // Lazy-load hikes for visible dates (today and nearby)
-        for date in allDates {
-            _ = manager.getDailyHikes(for: date)
-        }
+        // Only eagerly load today's hike (so user sees their schedule immediately)
+        _ = manager.getDailyHikes(for: today)
+        // All other days are loaded on-demand when user navigates to DayDetailView
     }
 
     private func completedHikesFor(date: Date) -> [DailyHike] {
@@ -118,7 +112,11 @@ struct ScheduleListView: View {
     }
 
     private func scheduledDogsFor(date: Date) -> [Dog] {
+        // Only show dogs if a hike already exists (was viewed before)
         let hikes = hikesFor(date: date).filter { $0.isPlanned }
+
+        // If no existing planned hike, return empty (don't compute schedule)
+        guard !hikes.isEmpty else { return [] }
 
         // Get all dog IDs from participations
         let dogIds = Set(hikes.flatMap { $0.participations.map { $0.dogId } })

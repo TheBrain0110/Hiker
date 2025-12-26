@@ -64,12 +64,7 @@ struct ScheduleCalendarView: View {
         .onChange(of: currentMonth) {
             loadHikesForMonth()
         }
-        .onChange(of: activeDogs) {
-            loadHikesForMonth()
-        }
-        .onChange(of: scheduleOverrides) {
-            loadHikesForMonth()
-        }
+        // Note: Removed onChange handlers - stale flags handle schedule changes
     }
 
     // MARK: - Helper Methods
@@ -81,13 +76,11 @@ struct ScheduleCalendarView: View {
     }
 
     private func loadHikesForMonth() {
+        // Only load today when first opening calendar view
+        // The calendar will show indicators for existing hikes only
+        // Other days load on-demand when user taps to view details
         let manager = DailyHikeManager(modelContext: modelContext)
-
-        // Load schedules for the entire month
-        let monthDays = getDaysInMonth(currentMonth)
-        for date in monthDays {
-            _ = manager.getDailyHikes(for: date)
-        }
+        _ = manager.getDailyHikes(for: Date())
     }
 
     private func getDaysInMonth(_ date: Date) -> [Date] {
