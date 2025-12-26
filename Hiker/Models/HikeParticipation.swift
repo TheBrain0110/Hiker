@@ -1,20 +1,21 @@
 //
-//  DogAttendance.swift
+//  HikeParticipation.swift
 //  Hiker
 //
-//  Created by Claude on 12/16/25.
+//  Created by Claude on 12/25/25.
 //
 
 import Foundation
 import SwiftData
 import CoreLocation
 
+/// Tracks a dog's participation in a hike (planned or completed)
 @Model
-final class DogAttendance {
+final class HikeParticipation {
     @Attribute(.unique) var id: UUID
     var dogId: UUID                         // Reference to Dog
     var dogName: String                     // Denormalized for history
-    var pickupOrder: Int                    // 1-8, order in route
+    var pickupOrder: Int                    // 1-8, position in route
 
     // Pickup location (denormalized)
     var pickupLatitude: Double?
@@ -23,12 +24,14 @@ final class DogAttendance {
 
     // Payment tracking
     var paymentId: UUID?                    // Link to Payment record
-    var amountCharged: Decimal              // Snapshot of rate at time
+    var rate: Decimal                       // Snapshot of dog.paymentRate
 
-    // Schedule override tracking
+    // Status tracking
+    var isConfirmed: Bool = false           // True when user confirms attendance
     var wasAddedViaOverride: Bool = false   // True if dog had .isPresent override (shows "Added" badge)
 
-    var completedHike: CompletedHike?
+    // Relationship to parent hike
+    var dailyHike: DailyHike?
 
     init(
         id: UUID = UUID(),
@@ -39,7 +42,8 @@ final class DogAttendance {
         pickupLongitude: Double? = nil,
         pickupAddress: String? = nil,
         paymentId: UUID? = nil,
-        amountCharged: Decimal = 25.00,
+        rate: Decimal = 25.00,
+        isConfirmed: Bool = false,
         wasAddedViaOverride: Bool = false
     ) {
         self.id = id
@@ -50,7 +54,8 @@ final class DogAttendance {
         self.pickupLongitude = pickupLongitude
         self.pickupAddress = pickupAddress
         self.paymentId = paymentId
-        self.amountCharged = amountCharged
+        self.rate = rate
+        self.isConfirmed = isConfirmed
         self.wasAddedViaOverride = wasAddedViaOverride
     }
 

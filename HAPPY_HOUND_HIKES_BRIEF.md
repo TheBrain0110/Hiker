@@ -117,48 +117,53 @@ The original design separated "Today's Schedule" and "Weekly Schedule Manager" i
 **Day Detail Views (Conditional based on day type):**
 
 *Past Days:*
-- Display `CompletedHike` records with actual attendance
+- Display completed `DailyHike` records with actual attendance (`completedAt` set)
 - Show notes, trail used, route taken, completion timestamp
 - Allow editing for corrections (e.g., fix attendance errors)
 - Read-only route map showing actual pickups
 
 *Today:*
-- Show planned schedule from `DailyHikeManager`
+- Show planned schedule from `DailyHikeManager` (lazy-loaded `DailyHike`)
 - **"Mark Complete" button** launches completion workflow
 - Mark which dogs actually attended (defaults to all)
 - Select trail visited, add notes
-- Creates `CompletedHike` + `DogAttendance` records
+- Sets `completedAt` on existing `DailyHike` record
 
 *Future Days:*
-- Show computed schedule (editable)
+- Show computed schedule (editable, lazy-created on first view)
 - Add/remove dogs via `ScheduleOverride` records
-- Visual indicators for overridden schedules
-- Same functionality as original "Weekly Schedule Manager"
+- Visual indicators for overridden schedules ("Added"/"Removed" badges)
+- Context-aware staleness: "Recalculate Route" vs "Apply Changes" actions
 
-### New Data Models
+### Data Models (Implemented)
 
-**CompletedHike:**
+**DailyHike** (unified model for entire lifecycle):
 ```swift
 @Model
-final class CompletedHike {
-    var date: Date                          // Day hike occurred (normalized to startOfDay)
+final class DailyHike {
+    var date: Date                          // Normalized to startOfDay
     var hikeNumber: Int                     // 1 or 2
-    var completedAt: Date                   // Timestamp when marked complete
-    var routeLatitudes: [Double]            // Actual route taken
+    var completedAt: Date?                  // nil = planned, set = completed
+    var staleReasonRaw: String?             // Context-aware staleness tracking
+    var routeLatitudes: [Double]            // Optimized route coordinates
     var routeLongitudes: [Double]
     var totalDistance: Double
-    var trailLocationId: UUID?
+    var selectedTrailId: UUID?
     var trailName: String?                  // Denormalized for history
+    var removedDogIds: [UUID]               // Dogs removed via override
+    var removedDogNames: [String]
     var notes: String?
+    var createdAt: Date
+    var lastModifiedAt: Date
     @Relationship(deleteRule: .cascade)
-    var dogAttendances: [DogAttendance]
+    var participations: [HikeParticipation]
 }
 ```
 
-**DogAttendance:**
+**HikeParticipation** (per-dog tracking):
 ```swift
 @Model
-final class DogAttendance {
+final class HikeParticipation {
     var dogId: UUID
     var dogName: String                     // Denormalized snapshot
     var pickupOrder: Int                    // 1-8, position in route
@@ -166,26 +171,29 @@ final class DogAttendance {
     var pickupLongitude: Double?
     var pickupAddress: String?              // Snapshot of address at time
     var paymentId: UUID?                    // Link to payment record
-    var amountCharged: Decimal              // Rate at time of hike
-    var completedHike: CompletedHike?
+    var rate: Decimal                       // Rate at time of hike
+    var isConfirmed: Bool                   // True when user confirms attendance
+    var wasAddedViaOverride: Bool           // Shows "Added" badge
+    var dailyHike: DailyHike?
 }
 ```
 
 ### Key Benefits of Unified Design
 
-1. **Historical Records**: Past hikes are now permanently recorded with actual attendance, not just computed from schedules
-2. **Single Source of Truth**: One timeline showing past, present, and future eliminates need to switch between tabs
-3. **Flexible Viewing**: Calendar provides overview, list provides detail—user chooses based on need
-4. **Completion Tracking**: Clear workflow for transitioning planned hikes to completed records
-5. **Data Integrity**: Denormalized snapshots in `DogAttendance` preserve historical accuracy even if dog/client data changes
+1. **Single Model Lifecycle**: Same `DailyHike` record transitions from planned → completed
+2. **Route Caching**: Expensive routing computed once on first access, then persisted
+3. **Customization Persistence**: Manual dog add/remove and trail selection survives between views
+4. **Historical Records**: Past hikes permanently recorded with actual attendance and route
+5. **Data Integrity**: Denormalized snapshots in `HikeParticipation` preserve historical accuracy
+6. **Context-Aware Staleness**: `StaleReason` tracks WHY hike needs attention (.routeNeedsOptimization vs .scheduleChanged)
 
 ### Migration from Original Design
 
 - **Today tab** → Integrated into unified timeline (today's row)
 - **Weekly tab** → Integrated into timeline (future days are editable)
 - Maintains all original functionality while adding historical tracking
-- No breaking changes to existing data models (Dog, ScheduleOverride, etc.)
-- Additive approach: `CompletedHike` supplements existing computed schedules
+- Lazy persistence: Hikes created on first view, not pre-computed
+- "Reset to Schedule" button clears overrides and regenerates from weekly pattern
 
 ---
 
@@ -359,27 +367,36 @@ final class DailyHike {
     var date: Date                               // Day hike occurs (normalized to startOfDay)
     var hikeNumber: Int                          // 1 or 2
     var completedAt: Date?                       // nil = planned, set = completed
+    var staleReasonRaw: String?                  // .routeNeedsOptimization or .scheduleChanged
     var routeLatitudes: [Double]                 // Cached optimized route
     var routeLongitudes: [Double]
     var totalDistance: Double
     var selectedTrailId: UUID?                   // User-selected or auto-suggested
     var trailName: String?                       // Denormalized
+    var removedDogIds: [UUID]                    // Dogs removed via .isAbsent override
+    var removedDogNames: [String]
     var notes: String?
     @Relationship(deleteRule: .cascade)
-    var dogAttendances: [DogAttendance]          // Planned or actual attendance
+    var participations: [HikeParticipation]      // Planned or actual attendance
 }
 ```
 
 **Lifecycle:**
-1. **Created on first access** - When user views a future date, computed from Dog schedules + ScheduleOverrides, then persisted
-2. **Customized** - User can manually reorder route, select different trail, add/remove dogs
+1. **Created on first access** - When user views a date, computed from Dog schedules + ScheduleOverrides, then persisted
+2. **Customized** - User can manually add/remove dogs; staleness tracked via `staleReason`
 3. **Completed** - Mark as complete sets `completedAt`, preserves actual attendance and route
+
+**Staleness Tracking:**
+- `staleReason = nil` - Hike is up-to-date
+- `staleReason = .routeNeedsOptimization` - Dogs manually added/removed, just re-optimize route
+- `staleReason = .scheduleChanged` - Dog schedule changed, need to sync dog list
 
 **Benefits:**
 - Expensive routing (future: real roads) computed once and cached
 - User customizations persist between views
-- Single model for entire hike lifecycle (eliminates separate CompletedHike)
-- "Reset" capability to regenerate from rules when needed
+- Single model for entire hike lifecycle
+- Context-aware actions based on WHY hike is stale
+- "Reset to Schedule" clears all overrides and regenerates from weekly pattern
 
 ---
 

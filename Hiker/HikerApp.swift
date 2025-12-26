@@ -17,8 +17,8 @@ struct HikerApp: App {
             Payment.self,
             ScheduleOverride.self,
             HikingLocation.self,
-            CompletedHike.self,
-            DogAttendance.self,
+            DailyHike.self,
+            HikeParticipation.self,
         ])
 
         // Enable iCloud sync with CloudKit

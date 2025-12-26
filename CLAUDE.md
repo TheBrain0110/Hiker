@@ -57,11 +57,13 @@ The app uses **SwiftData** with iCloud CloudKit sync. All models are located in 
 - **Client** - Dog owner (name, contact info, address with geocoded coordinates). *Planned: Add `contactIdentifier` for system Contacts integration*
 - **Dog** - Individual dog with regular weekly schedule, payment rate, pickup location
 - **ScheduleOverride** - Daily exceptions to regular schedules (`.isPresent` or `.isAbsent`)
-- **Payment** - Payment records linked to dogs (now includes `completedHikeId` to link to specific hikes)
+- **Payment** - Payment records linked to dogs (includes `completedHikeId` to link to specific hikes)
 - **HikingLocation** - Trail locations with coordinates and region tags
-- **DailyHike** - *Current:* View model (not persisted). *Planned:* Unified persistent model for entire hike lifecycle (planned → completed)
-- **CompletedHike** - Historical record of completed hikes with actual attendance and route data. *Planned: Merge into unified DailyHike model*
-- **DogAttendance** - Per-dog participation tracking for completed hikes (denormalized snapshots)
+- **DailyHike** - Unified persistent model for hike lifecycle (planned → completed)
+  - `completedAt: Date?` - nil = planned, set = completed
+  - `staleReason: StaleReason?` - Context-aware staleness tracking
+  - Lazy-loaded on first access, cached for future visits
+- **HikeParticipation** - Per-dog participation tracking for hikes (denormalized snapshots)
 
 **Critical Data Model Patterns:**
 
@@ -80,14 +82,22 @@ The app uses **SwiftData** with iCloud CloudKit sync. All models are located in 
    - Stored as `[Int]` in SwiftData (`regularScheduleDays`)
    - Accessed via computed property `regularSchedule: [DayOfWeek]`
 
-4. **Historical Hike Storage**
-   - `CompletedHike` stores actual hike completion data with override tracking
-   - `DogAttendance` tracks per-dog participation with denormalized snapshots
-   - **Override Persistence:** `DogAttendance.wasAddedViaOverride` tracks dogs added via `.isPresent` override
-   - **Removed Dogs:** `CompletedHike.removedDogIds/removedDogNames` tracks dogs with `.isAbsent` overrides
-   - Relationships: `CompletedHike` → `[DogAttendance]` (cascade delete)
+4. **Unified Hike Storage (DailyHike + HikeParticipation)**
+   - `DailyHike` stores hike data for both planned and completed states
+   - `HikeParticipation` tracks per-dog participation with denormalized snapshots
+   - **Override Persistence:** `HikeParticipation.wasAddedViaOverride` tracks dogs added via `.isPresent` override
+   - **Removed Dogs:** `DailyHike.removedDogIds/removedDogNames` tracks dogs with `.isAbsent` overrides
+   - **Staleness Tracking:** `staleReason: StaleReason?` with context-aware values
+   - Relationships: `DailyHike` → `[HikeParticipation]` (cascade delete)
    - Route storage: Separate `routeLatitudes` and `routeLongitudes` arrays
    - Computed property `route: [CLLocationCoordinate2D]` reconstructs coordinates
+
+5. **Stale Reason API**
+   - `StaleReason.routeNeedsOptimization` - Dogs manually added/removed, re-optimize route only
+   - `StaleReason.scheduleChanged` - Dog schedule changed, sync dog list with schedule
+   - `nil` - Hike is up-to-date
+   - `isStale: Bool` convenience computed property for backward compatibility
+   - Priority rule: Don't downgrade from `.scheduleChanged` to `.routeNeedsOptimization`
 
 ### Schedule Logic (`DailyHikeManager.swift`)
 
@@ -152,12 +162,16 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
 - `DayDetailView.swift` - Full day view with conditional UI and edit mode
   - **Unified Day Content:** Single `dayContent` view handles past/today/future with temporal conditionals
   - **Retroactive Completion:** Past dates show uncompleted planned hikes with "Mark Complete" option
-  - **Edit Mode:** Toggle between view/edit modes (only shows when pending hikes exist)
+  - **Edit Mode:** Toggle between view/edit modes (always visible, disabled when no pending hikes)
   - **iOS Swipe Actions:** Swipe-to-delete dogs from hikes (iOS only)
   - **Badge System:** Visual indicators for schedule overrides (Added/Removed in both planned and completed hikes)
   - **Navigation:** Tap dog rows to navigate to DogDetailView
+  - **Keyboard Navigation:** Arrow keys navigate between days (macOS/iPad with keyboard)
+  - **Context-Aware Stale Actions:**
+    - "Recalculate Route" for `.routeNeedsOptimization` - re-optimizes pickup order, dog list unchanged
+    - "Apply Changes" for `.scheduleChanged` - syncs dog list with current schedule + overrides
+    - "Reset to Schedule" - always available, clears all overrides and regenerates from weekly pattern
 - `CompleteHikeSheet.swift` - Modal workflow for marking hikes complete with override persistence
-- `CompletedHikeCard.swift` - Display component for historical hikes with "Added" badges and removed dogs section
 - `MonthNavigationHeader.swift` - Reusable month navigation controls
 - `WeekdayHeader.swift` - Reusable weekday column headers
 
@@ -228,12 +242,12 @@ try? modelContext.delete(model: Dog.self)
 The project uses Swift Testing framework (`@Test`, `#expect`) for unit tests in `HikerTests/`.
 
 **Test Files:**
-- `ModelTests.swift` - SwiftData model computed properties (28 tests)
+- `ModelTests.swift` - SwiftData model computed properties (38 tests, includes StaleReason tests)
 - `DateExtensionTests.swift` - Date utility functions (25 tests)
 - `RouteOptimizerTests.swift` - Route optimization algorithms (12 tests)
 - `DayOfWeekTests.swift` - DayOfWeek enum (6 tests)
-- `DailyHikeManagerTests.swift` - Schedule computation (15 tests, **disabled**)
-- `ScheduleOverrideTests.swift` - Override logic (9 tests, **disabled**)
+- `DailyHikeManagerTests.swift` - Schedule computation (22 tests, **disabled** - SwiftData cross-module issue)
+- `ScheduleOverrideTests.swift` - Override logic (9 tests, **disabled** - SwiftData cross-module issue)
 
 **Running Tests:**
 ```bash
@@ -291,10 +305,10 @@ Use `SampleData.createSampleData(in:)` to populate test data:
 - Creates clients with dogs in Bedford/Sackville/Beaver Bank
 - Adds hiking locations for each region
 - Sets up realistic schedules (Mon/Wed/Fri patterns)
-- Generates **completed hikes for past 5 weekdays** with attendance records
+- Generates **completed hikes for past 5 weekdays** with participation records
   - Automatically determines scheduled dogs based on their regular schedules
   - Creates sample route coordinates and assigns random trails
-  - Includes DogAttendance records with denormalized data (dogName, address, rates)
+  - Includes HikeParticipation records with denormalized data (dogName, address, rates)
   - Adds notes to most recent hike for testing
 
 Load via Settings tab → "Load Sample Data"
@@ -346,10 +360,10 @@ NavigationLink {
 }
 ```
 
-**For historical data (CompletedHikeDogRow):**
-- Look up dog by UUID using FetchDescriptor
-- Show NavigationLink only if dog still exists
-- Gracefully handle deleted dogs (show historical data without navigation)
+**For historical data (participation rows in completed hikes):**
+- Look up dog by UUID from `HikeParticipation.dogId` using FetchDescriptor
+- Show NavigationLink only if dog still exists in database
+- Gracefully handle deleted dogs (show historical denormalized data without navigation)
 
 ### Platform-Specific Code
 **CRITICAL:** Always wrap platform-specific modifiers in conditional compilation to support both iOS and macOS:
@@ -430,32 +444,34 @@ NavigationStack {
 - **Benefits:** Native call/text UI, auto-updates from Contacts, no data duplication, while maintaining business flexibility
 - **Reasoning:** Best of both worlds - leverage system integrations where appropriate, maintain custom business models where needed
 
-### Why Unified DailyHike Model (Planned)?
-- **Current State:** DailyHike is ephemeral view model, CompletedHike is separate persistent model
+### Why Unified DailyHike Model?
+- **Previous State:** DailyHike was ephemeral view model, CompletedHike was separate persistent model
 - **Problem:** Future real road routing will be expensive to compute; need to cache results
-- **Solution:** Unified persistent model with lifecycle states (planned → customized → completed)
+- **Solution (Implemented December 2025):** Unified persistent model with lifecycle states
   - Lazy persistence: Compute once on first access, then cache
   - `completedAt: Date?` field distinguishes planned (nil) from completed (set)
-  - Supports user customizations (manual route reorder, trail selection) that persist
-  - "Reset" button to delete and regenerate from rules
+  - Supports user customizations (manual dog add/remove, trail selection) that persist
+  - Context-aware staleness tracking via `staleReason: StaleReason?`
 - **Benefits:** Single model, simpler architecture, caching enables expensive computations, preserves customizations
-- **Open Question:** Invalidation strategy when Dog schedules change (TBD during implementation)
+- **Invalidation Strategy:** `staleReason` tracks WHY hike needs attention
+  - `.routeNeedsOptimization` - Manual add/remove, just re-optimize route
+  - `.scheduleChanged` - Dog schedule changed, sync dog list with schedule
+  - Context-aware UI shows appropriate action button
 
 ## Future Enhancements
 
-**Status:** Planning / Design Phase (December 2025)
+**Status:** Active Development (December 2025)
 
-### 1. Unified DailyHike Persistent Model
+### 1. Unified DailyHike Persistent Model ✅ COMPLETE
 **Goal:** Single model for hike lifecycle (planned → completed), enabling route caching and customization persistence
 
-**Changes:**
-- Refactor `DailyHike` from view model to `@Model` class
-- Add fields: `completedAt`, `selectedTrailId`, `routeLatitudes/Longitudes`, `notes`
-- Lazy-load logic: Check for existing `DailyHike`, compute if missing
-- Migrate `CompletedHike` data, then remove model
-- Add "Reset Route" button in edit mode
-
-**See:** HAPPY_HOUND_HIKES_BRIEF.md "Future Roadmap" section
+**Implemented:**
+- `DailyHike` as `@Model` class with `completedAt`, `selectedTrailId`, route coordinates, notes
+- `HikeParticipation` for per-dog tracking with denormalized snapshots
+- Lazy-load logic: Check for existing hike, compute if missing
+- Context-aware staleness via `staleReason: StaleReason?`
+- "Recalculate Route" and "Reset to Schedule" buttons in edit mode
+- Keyboard navigation (arrow keys) for day traversal
 
 ### 2. System Integrations
 **Contacts** - Hybrid integration via `contactIdentifier`, pull phone/address, call/text buttons
@@ -492,23 +508,21 @@ Hiker/
 │   ├── ScheduleOverride.swift
 │   ├── DayOfWeek.swift
 │   ├── HikingLocation.swift
-│   ├── DailyHike.swift      # View model (not persisted)
-│   ├── CompletedHike.swift  # NEW: Historical hike records
-│   └── DogAttendance.swift  # NEW: Per-dog participation tracking
+│   ├── DailyHike.swift      # Unified persistent model + StaleReason enum
+│   └── HikeParticipation.swift  # Per-dog participation tracking
 ├── Managers/
-│   └── DailyHikeManager.swift
+│   └── DailyHikeManager.swift  # Lazy-load, reset, staleness tracking
 ├── Utilities/
 │   ├── RouteOptimizer.swift
 │   └── SampleData.swift
 ├── Views/
-│   ├── ScheduleView.swift   # Main schedule tab (replaces former Today + Weekly tabs)
+│   ├── ScheduleView.swift   # Main schedule tab
 │   ├── Schedule/            # Schedule view components
 │   │   ├── ScheduleListView.swift
 │   │   ├── ScheduleCalendarView.swift
 │   │   ├── DayRow.swift
-│   │   ├── DayDetailView.swift  # With edit mode, badges, navigation
-│   │   ├── CompleteHikeSheet.swift
-│   │   └── CompletedHikeCard.swift
+│   │   ├── DayDetailView.swift  # With edit mode, stale actions, keyboard nav
+│   │   └── CompleteHikeSheet.swift
 │   ├── Clients/             # Client management views
 │   │   ├── ClientsView.swift
 │   │   ├── ClientDetailView.swift

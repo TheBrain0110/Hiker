@@ -14,7 +14,7 @@ struct CompleteHikeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let date: Date
-    let hike: DailyHike.Hike
+    @Bindable var hike: DailyHike
 
     @Query(filter: #Predicate<HikingLocation> { $0.isActive }, sort: \HikingLocation.name)
     private var hikingLocations: [HikingLocation]
@@ -29,12 +29,15 @@ struct CompleteHikeSheet: View {
     @State private var notes: String = ""
     @State private var isSaving = false
 
-    init(date: Date, hike: DailyHike.Hike) {
+    init(date: Date, hike: DailyHike) {
         self.date = date
-        self.hike = hike
+        self._hike = Bindable(wrappedValue: hike)
 
-        // Pre-select all dogs as attending
-        _attendingDogs = State(initialValue: Set(hike.dogs.map { $0.id }))
+        // Pre-select all participating dogs as attending
+        _attendingDogs = State(initialValue: Set(hike.orderedParticipations.map { $0.dogId }))
+
+        // Pre-fill notes from hike if any
+        _notes = State(initialValue: hike.notes ?? "")
     }
 
     var body: some View {
@@ -42,14 +45,14 @@ struct CompleteHikeSheet: View {
             Form {
                 // Dog Attendance
                 Section {
-                    ForEach(Array(hike.dogs.enumerated()), id: \.element.id) { index, dog in
+                    ForEach(Array(hike.orderedParticipations.enumerated()), id: \.element.id) { index, participation in
                         Toggle(isOn: Binding(
-                            get: { attendingDogs.contains(dog.id) },
+                            get: { attendingDogs.contains(participation.dogId) },
                             set: { isAttending in
                                 if isAttending {
-                                    attendingDogs.insert(dog.id)
+                                    attendingDogs.insert(participation.dogId)
                                 } else {
-                                    attendingDogs.remove(dog.id)
+                                    attendingDogs.remove(participation.dogId)
                                 }
                             }
                         )) {
@@ -60,10 +63,10 @@ struct CompleteHikeSheet: View {
                                     .frame(width: 20, alignment: .trailing)
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(dog.name)
+                                    Text(participation.dogName)
                                         .font(.subheadline)
 
-                                    if let address = dog.locationAddress {
+                                    if let address = participation.pickupAddress {
                                         Text(address)
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
@@ -76,7 +79,7 @@ struct CompleteHikeSheet: View {
                 } header: {
                     Text("Dog Attendance")
                 } footer: {
-                    Text("\(attendingDogs.count) of \(hike.dogs.count) dogs attending")
+                    Text("\(attendingDogs.count) of \(hike.orderedParticipations.count) dogs attending")
                 }
 
                 // Trail Selection
@@ -97,7 +100,7 @@ struct CompleteHikeSheet: View {
                         .lineLimit(3...6)
                 }
             }
-            .navigationTitle("Complete Hike \(hike.number)")
+            .navigationTitle("Complete Hike \(hike.hikeNumber)")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -116,8 +119,10 @@ struct CompleteHikeSheet: View {
                 }
             }
             .onAppear {
-                // Pre-select suggested trail
-                selectedTrail = hike.suggestedTrail
+                // Pre-select trail from hike if set
+                if let trailId = hike.selectedTrailId {
+                    selectedTrail = hikingLocations.first { $0.id == trailId }
+                }
             }
         }
     }
@@ -127,8 +132,9 @@ struct CompleteHikeSheet: View {
     private func completeHike() {
         isSaving = true
 
-        // Find schedule overrides for this date
         let normalizedDate = Calendar.current.startOfDay(for: date)
+
+        // Find schedule overrides for this date (for tracking removed dogs)
         let overridesForDate = scheduleOverrides.filter { override in
             Calendar.current.isDate(override.date, inSameDayAs: normalizedDate)
         }
@@ -155,44 +161,18 @@ struct CompleteHikeSheet: View {
             }
         }
 
-        // Create CompletedHike record
-        let completedHike = CompletedHike(
-            date: date,
-            hikeNumber: hike.number,
-            routeLatitudes: hike.route.map { $0.latitude },
-            routeLongitudes: hike.route.map { $0.longitude },
-            trailLocationId: selectedTrail?.id,
-            trailName: selectedTrail?.name,
-            totalDistance: hike.totalDistance,
-            notes: notes.isEmpty ? nil : notes,
-            removedDogIds: removedDogIds,
-            removedDogNames: removedDogNames
-        )
+        // Update the DailyHike to mark as completed
+        hike.completedAt = Date()
+        hike.selectedTrailId = selectedTrail?.id
+        hike.trailName = selectedTrail?.name
+        hike.notes = notes.isEmpty ? nil : notes
+        hike.removedDogIds = removedDogIds
+        hike.removedDogNames = removedDogNames
+        hike.lastModifiedAt = Date()
 
-        modelContext.insert(completedHike)
-
-        // Create DogAttendance records for attending dogs
-        let attendingDogsList = hike.dogs.filter { attendingDogs.contains($0.id) }
-
-        for (index, dog) in attendingDogsList.enumerated() {
-            // Check if this dog was added via .isPresent override
-            let hasAddedOverride = overridesForDate.contains { override in
-                override.dogId == dog.id && override.type == .isPresent
-            }
-
-            let attendance = DogAttendance(
-                dogId: dog.id,
-                dogName: dog.name,
-                pickupOrder: index + 1,
-                pickupLatitude: dog.location?.latitude,
-                pickupLongitude: dog.location?.longitude,
-                pickupAddress: dog.locationAddress,
-                amountCharged: dog.paymentRate,
-                wasAddedViaOverride: hasAddedOverride
-            )
-
-            attendance.completedHike = completedHike
-            modelContext.insert(attendance)
+        // Update participation records for attendance confirmation
+        for participation in hike.participations {
+            participation.isConfirmed = attendingDogs.contains(participation.dogId)
         }
 
         // Save context
@@ -207,17 +187,17 @@ struct CompleteHikeSheet: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)
 
     // Get a hike from sample data
     let manager = DailyHikeManager(modelContext: container.mainContext)
-    let schedule = manager.dailySchedule(for: Date())
+    let hikes = manager.getDailyHikes(for: Date())
 
     return Group {
-        if let hike = schedule.hike1 {
+        if let hike = hikes.first {
             CompleteHikeSheet(date: Date(), hike: hike)
         } else {
             Text("No hike available")

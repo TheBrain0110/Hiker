@@ -11,7 +11,7 @@ import SwiftData
 struct DayRow: View {
     let date: Date
     let isToday: Bool
-    let completedHikes: [CompletedHike]
+    let completedHikes: [DailyHike]
     let scheduledDogs: [Dog]
 
     private var isPast: Bool {
@@ -148,23 +148,27 @@ struct DayRow: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)
 
     // Get sample data for preview
     let manager = DailyHikeManager(modelContext: container.mainContext)
-    let schedule = manager.dailySchedule(for: Date())
-    let dogs = (schedule.hike1?.dogs ?? []) + (schedule.hike2?.dogs ?? [])
+    let hikes = manager.getDailyHikes(for: Date())
+    let completedHikes = hikes.filter { $0.isCompleted }
+
+    // Fetch all dogs directly - simpler for preview
+    let dogDescriptor = FetchDescriptor<Dog>(sortBy: [SortDescriptor(\.name)])
+    let allDogs = (try? container.mainContext.fetch(dogDescriptor)) ?? []
 
     return List {
         // Today with scheduled dogs
         DayRow(
             date: Date(),
             isToday: true,
-            completedHikes: [],
-            scheduledDogs: dogs
+            completedHikes: completedHikes,
+            scheduledDogs: Array(allDogs.prefix(5))
         )
 
         // Past day (completed hike shown from sample data)
@@ -180,7 +184,7 @@ struct DayRow: View {
             date: Calendar.current.date(byAdding: .day, value: 2, to: Date())!,
             isToday: false,
             completedHikes: [],
-            scheduledDogs: Array(dogs.prefix(3))
+            scheduledDogs: Array(allDogs.prefix(3))
         )
     }
     .modelContainer(container)

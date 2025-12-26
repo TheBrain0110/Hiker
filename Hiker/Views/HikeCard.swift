@@ -10,7 +10,8 @@ import SwiftData
 import MapKit
 
 struct HikeCard: View {
-    let hike: DailyHike.Hike
+    @Environment(\.modelContext) private var modelContext
+    let hike: DailyHike
 
     @State private var isExpanded = true
 
@@ -35,10 +36,10 @@ struct HikeCard: View {
                         .frame(height: 200)
                 }
 
-                // Suggested Trail
-                if let trail = hike.suggestedTrail {
+                // Trail Info
+                if let trailName = hike.trailName {
                     Divider()
-                    trailSuggestion(trail)
+                    trailInfo(trailName)
                         .padding()
                 }
             }
@@ -54,7 +55,7 @@ struct HikeCard: View {
         Button(action: { withAnimation { isExpanded.toggle() } }) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Hike \(hike.number)")
+                    Text("Hike \(hike.hikeNumber)")
                         .font(.headline)
                         .foregroundStyle(.primary)
 
@@ -77,10 +78,11 @@ struct HikeCard: View {
 
     private var dogList: some View {
         VStack(spacing: 0) {
-            ForEach(Array(hike.dogs.enumerated()), id: \.element.id) { index, dog in
-                DogListItem(dog: dog, pickupOrder: index + 1)
+            let participations = hike.orderedParticipations
+            ForEach(Array(participations.enumerated()), id: \.element.id) { index, participation in
+                ParticipationListItem(participation: participation)
 
-                if index < hike.dogs.count - 1 {
+                if index < participations.count - 1 {
                     Divider()
                         .padding(.leading, 60)
                 }
@@ -112,18 +114,6 @@ struct HikeCard: View {
                 MapPolyline(coordinates: hike.route)
                     .stroke(.blue, lineWidth: 3)
             }
-
-            // Show suggested trail
-            if let trail = hike.suggestedTrail {
-                Annotation(trail.name, coordinate: trail.coordinate) {
-                    Image(systemName: "figure.hiking")
-                        .font(.title2)
-                        .foregroundStyle(.green)
-                        .padding(8)
-                        .background(Circle().fill(.white))
-                        .shadow(radius: 2)
-                }
-            }
         }
         .mapStyle(.standard)
         .disabled(true)  // Disable interaction for card view
@@ -141,9 +131,9 @@ struct HikeCard: View {
         }
     }
 
-    // MARK: - Trail Suggestion
+    // MARK: - Trail Info
 
-    private func trailSuggestion(_ trail: HikingLocation) -> some View {
+    private func trailInfo(_ trailName: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "figure.hiking")
                 .font(.title2)
@@ -151,31 +141,23 @@ struct HikeCard: View {
                 .frame(width: 40)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Suggested Trail")
+                Text("Trail")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(trail.name)
+                Text(trailName)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                Text(trail.region)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
     }
 }
 
-// MARK: - Dog List Item
+// MARK: - Participation List Item
 
-struct DogListItem: View {
-    let dog: Dog
-    let pickupOrder: Int
+struct ParticipationListItem: View {
+    let participation: HikeParticipation
 
     var body: some View {
         HStack(spacing: 12) {
@@ -184,25 +166,25 @@ struct DogListItem: View {
                 Circle()
                     .fill(Color.blue.opacity(0.2))
                     .frame(width: 36, height: 36)
-                Text("\(pickupOrder)")
+                Text("\(participation.pickupOrder)")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundStyle(.blue)
             }
 
-            // Dog info
+            // Dog info (from denormalized data)
             VStack(alignment: .leading, spacing: 2) {
-                Text(dog.name)
-                    .font(.body)
-                    .fontWeight(.medium)
+                HStack {
+                    Text(participation.dogName)
+                        .font(.body)
+                        .fontWeight(.medium)
 
-                if let owner = dog.client?.ownerName {
-                    Text(owner)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if participation.wasAddedViaOverride {
+                        Badge(text: "Added", color: .green)
+                    }
                 }
 
-                if let address = dog.locationAddress {
+                if let address = participation.pickupAddress {
                     Text(address)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -211,13 +193,6 @@ struct DogListItem: View {
             }
 
             Spacer()
-
-            // Notes indicator
-            if !dog.notes.isEmpty {
-                Image(systemName: "note.text")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -225,7 +200,7 @@ struct DogListItem: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     let context = container.mainContext
@@ -233,12 +208,12 @@ struct DogListItem: View {
     // Create sample data
     SampleData.createSampleData(in: context)
 
-    // Get a daily schedule
+    // Get a daily hike
     let manager = DailyHikeManager(modelContext: context)
-    let schedule = manager.dailySchedule(for: Date())
+    let hikes = manager.getDailyHikes(for: Date())
 
     return Group {
-        if let hike = schedule.hike1 {
+        if let hike = hikes.first {
             ScrollView {
                 HikeCard(hike: hike)
                     .padding()

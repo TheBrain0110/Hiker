@@ -167,6 +167,7 @@ struct DogDetailView: View {
 // MARK: - Editable Weekly Schedule
 
 struct EditableWeeklySchedule: View {
+    @Environment(\.modelContext) private var modelContext
     @Bindable var dog: Dog
 
     var body: some View {
@@ -222,6 +223,10 @@ struct EditableWeeklySchedule: View {
             schedule.sort { $0.rawValue < $1.rawValue }
         }
         dog.regularSchedule = schedule
+
+        // Mark future hikes as stale since schedule changed
+        let manager = DailyHikeManager(modelContext: modelContext)
+        manager.markAffectedHikesStale(for: dog.id, after: Date())
     }
 }
 
@@ -349,7 +354,7 @@ struct PaymentHistoryPlaceholder: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)

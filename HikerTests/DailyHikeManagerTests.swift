@@ -51,6 +51,22 @@ import CoreLocation
 ///
 /// The `createTestContext()` helper below creates an in-memory container.
 /// It compiles but crashes at runtime due to the type metadata issue.
+///
+/// ## API Update (December 2025)
+///
+/// DailyHikeManager has been updated to use persistent DailyHike models:
+/// - `getDailyHikes(for:)` returns [DailyHike] - lazy-loads or returns existing
+/// - `getOrCreateDailyHike(for:hikeNumber:)` returns single hike
+/// - `resetDailyHike(_:)` deletes a hike (caller regenerates)
+/// - `markAffectedHikesStale(for:after:)` sets `staleReason = .scheduleChanged`
+///
+/// ## Stale Reason API (December 2025)
+///
+/// The `isStale: Bool` flag was replaced with context-aware `staleReason: StaleReason?`:
+/// - `.routeNeedsOptimization` - Dogs manually added/removed, re-optimize route only
+/// - `.scheduleChanged` - Dog schedule changed, sync dog list with schedule
+/// - `nil` - Hike is up-to-date
+/// - `isStale: Bool` remains as computed property for backward compatibility
 @Suite(.disabled("SwiftData context not available in unit tests - see file header for details"))
 @MainActor
 struct DailyHikeManagerTests {
@@ -66,7 +82,7 @@ struct DailyHikeManagerTests {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: Client.self, Dog.self, Payment.self, ScheduleOverride.self,
-            HikingLocation.self, CompletedHike.self, DogAttendance.self,
+            HikingLocation.self, DailyHike.self, HikeParticipation.self,
             configurations: config
         )
         return container.mainContext
@@ -144,9 +160,9 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let saturday = getSaturday()
-        let schedule = manager.dailySchedule(for: saturday)
+        let hikes = manager.getDailyHikes(for: saturday)
 
-        #expect(schedule.hikes.isEmpty)
+        #expect(hikes.isEmpty)
     }
 
     @Test("Weekday with scheduled dogs returns hikes")
@@ -160,11 +176,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(!schedule.hikes.isEmpty)
-        #expect(schedule.hikes[0].dogs.count == 1)
-        #expect(schedule.hikes[0].dogs[0].name == "Buddy")
+        #expect(!hikes.isEmpty)
+        #expect(hikes[0].participations.count == 1)
+        #expect(hikes[0].participations[0].dogName == "Buddy")
     }
 
     // MARK: - Hike Capacity Tests
@@ -186,10 +202,10 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].dogs.count == 8)
+        #expect(hikes.count == 1)
+        #expect(hikes[0].participations.count == 8)
     }
 
     @Test("9 dogs split into 2 hikes")
@@ -209,11 +225,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 2)
+        #expect(hikes.count == 2)
         // 9 dogs split: 4 and 5 (or similar balanced split)
-        let totalDogs = schedule.hikes.reduce(0) { $0 + $1.dogs.count }
+        let totalDogs = hikes.reduce(0) { $0 + $1.participations.count }
         #expect(totalDogs == 9)
     }
 
@@ -234,11 +250,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 2)
-        #expect(schedule.hikes[0].dogs.count == 8)
-        #expect(schedule.hikes[1].dogs.count == 8)
+        #expect(hikes.count == 2)
+        #expect(hikes[0].participations.count == 8)
+        #expect(hikes[1].participations.count == 8)
     }
 
     @Test("More than 16 dogs capped at 16")
@@ -258,10 +274,10 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 2)
-        let totalDogs = schedule.hikes.reduce(0) { $0 + $1.dogs.count }
+        #expect(hikes.count == 2)
+        let totalDogs = hikes.reduce(0) { $0 + $1.participations.count }
         #expect(totalDogs == 16) // Capped at 16
     }
 
@@ -287,18 +303,18 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].dogs.count == 1)
-        #expect(schedule.hikes[0].dogs[0].name == "Buddy")
+        #expect(hikes.count == 1)
+        #expect(hikes[0].participations.count == 1)
+        #expect(hikes[0].participations[0].dogName == "Buddy")
     }
 
     @Test("Inactive dogs are excluded")
     func testInactiveDogsExcluded() throws {
         let context = try createTestContext()
 
-        let activeDog = createTestDog(
+        let _ = createTestDog(
             name: "ActiveDog",
             regularSchedule: [.monday],
             in: context
@@ -313,11 +329,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].dogs.count == 1)
-        #expect(schedule.hikes[0].dogs[0].name == "ActiveDog")
+        #expect(hikes.count == 1)
+        #expect(hikes[0].participations.count == 1)
+        #expect(hikes[0].participations[0].dogName == "ActiveDog")
     }
 
     @Test("Dogs without schedule not included")
@@ -338,11 +354,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].dogs.count == 1)
-        #expect(schedule.hikes[0].dogs[0].name == "ScheduledDog")
+        #expect(hikes.count == 1)
+        #expect(hikes[0].participations.count == 1)
+        #expect(hikes[0].participations[0].dogName == "ScheduledDog")
     }
 
     // MARK: - Empty Schedule Tests
@@ -354,9 +370,9 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.isEmpty)
+        #expect(hikes.isEmpty)
     }
 
     @Test("No dogs scheduled for specific day returns empty")
@@ -372,9 +388,9 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.isEmpty)
+        #expect(hikes.isEmpty)
     }
 
     // MARK: - Trail Suggestion Tests
@@ -408,10 +424,10 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].suggestedTrail?.name == "Close Trail")
+        #expect(hikes.count == 1)
+        #expect(hikes[0].trailName == "Close Trail")
     }
 
     @Test("No trails returns nil suggestion")
@@ -427,10 +443,10 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].suggestedTrail == nil)
+        #expect(hikes.count == 1)
+        #expect(hikes[0].trailName == nil)
     }
 
     // MARK: - Route Optimization Tests
@@ -456,11 +472,11 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
-        #expect(schedule.hikes[0].route.count == 2)
-        #expect(schedule.hikes[0].totalDistance > 0)
+        #expect(hikes.count == 1)
+        #expect(hikes[0].route.count == 2)
+        #expect(hikes[0].totalDistance > 0)
     }
 
     @Test("Dogs are alphabetically sorted before grouping")
@@ -474,13 +490,186 @@ struct DailyHikeManagerTests {
 
         let manager = DailyHikeManager(modelContext: context)
         let monday = getMonday()
-        let schedule = manager.dailySchedule(for: monday)
+        let hikes = manager.getDailyHikes(for: monday)
 
-        #expect(schedule.hikes.count == 1)
+        #expect(hikes.count == 1)
         // The dogs are fetched sorted by name, then route-optimized
         // We can't guarantee final order due to route optimization,
         // but all 3 dogs should be present
-        let dogNames = Set(schedule.hikes[0].dogs.map { $0.name })
+        let dogNames = Set(hikes[0].participations.map { $0.dogName })
         #expect(dogNames == Set(["Buddy", "Max", "Zoe"]))
+    }
+
+    // MARK: - Staleness Tracking Tests
+
+    @Test("markAffectedHikesStale sets scheduleChanged reason on future uncompleted hikes")
+    func testMarkAffectedHikesStaleMarksFutureHikes() throws {
+        let context = try createTestContext()
+        let dog = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create a hike for this dog
+        let hikes = manager.getDailyHikes(for: monday)
+        #expect(hikes.count == 1)
+        #expect(hikes[0].staleReason == nil)
+        #expect(hikes[0].isStale == false)
+
+        // Mark affected hikes as stale (simulating schedule change)
+        manager.markAffectedHikesStale(for: dog.id, after: Date())
+
+        // Verify hike now has scheduleChanged reason
+        let updatedHikes = manager.fetchExistingHikes(for: monday)
+        #expect(updatedHikes.count == 1)
+        #expect(updatedHikes[0].staleReason == .scheduleChanged)
+        #expect(updatedHikes[0].isStale == true)
+    }
+
+    @Test("markAffectedHikesStale does not affect completed hikes")
+    func testMarkAffectedHikesStaleIgnoresCompleted() throws {
+        let context = try createTestContext()
+        let dog = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create and complete a hike
+        let hikes = manager.getDailyHikes(for: monday)
+        #expect(hikes.count == 1)
+        hikes[0].completedAt = Date()  // Mark as completed
+        #expect(hikes[0].isCompleted == true)
+
+        // Try to mark as stale
+        manager.markAffectedHikesStale(for: dog.id, after: Date())
+
+        // Verify completed hike has no stale reason (should be ignored)
+        let updatedHikes = manager.fetchExistingHikes(for: monday)
+        #expect(updatedHikes.count == 1)
+        #expect(updatedHikes[0].staleReason == nil)
+        #expect(updatedHikes[0].isStale == false)
+    }
+
+    @Test("markAffectedHikesStale does not affect past hikes")
+    func testMarkAffectedHikesStaleIgnoresPast() throws {
+        let context = try createTestContext()
+        let dog = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+
+        // Create a hike in the past
+        let pastMonday = Calendar.current.date(byAdding: .day, value: -7, to: getMonday())!
+        _ = manager.getDailyHikes(for: pastMonday)
+
+        // Mark stale starting from today (past hike should be unaffected)
+        manager.markAffectedHikesStale(for: dog.id, after: Date())
+
+        // Verify past hike has no stale reason
+        let updatedHikes = manager.fetchExistingHikes(for: pastMonday)
+        if !updatedHikes.isEmpty {
+            #expect(updatedHikes[0].staleReason == nil)
+            #expect(updatedHikes[0].isStale == false)
+        }
+    }
+
+    @Test("markAffectedHikesStale only affects hikes with matching dogId")
+    func testMarkAffectedHikesStaleOnlyAffectsMatchingDog() throws {
+        let context = try createTestContext()
+        let buddy = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+        let _ = createTestDog(name: "Max", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create hikes (both dogs in same hike)
+        let hikes = manager.getDailyHikes(for: monday)
+        #expect(hikes.count == 1)
+        #expect(hikes[0].participations.count == 2)
+        #expect(hikes[0].staleReason == nil)
+
+        // Mark only Buddy's hikes as stale
+        manager.markAffectedHikesStale(for: buddy.id, after: Date())
+
+        // The hike contains Buddy, so it should have scheduleChanged reason
+        let updatedHikes = manager.fetchExistingHikes(for: monday)
+        #expect(updatedHikes[0].staleReason == .scheduleChanged)
+        #expect(updatedHikes[0].isStale == true)
+    }
+
+    // MARK: - Reset Hike Tests
+
+    @Test("resetDailyHike deletes existing hike")
+    func testResetDailyHikeDeletesExisting() throws {
+        let context = try createTestContext()
+        let _ = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create a hike
+        let hikes = manager.getDailyHikes(for: monday)
+        #expect(hikes.count == 1)
+        let originalId = hikes[0].id
+
+        // Reset the hike
+        manager.resetDailyHike(hikes[0])
+
+        // Verify old hike is gone
+        let existingHikes = manager.fetchExistingHikes(for: monday)
+        #expect(existingHikes.isEmpty)
+
+        // Regenerate
+        let newHikes = manager.getDailyHikes(for: monday)
+        #expect(newHikes.count == 1)
+        #expect(newHikes[0].id != originalId)  // New hike has different ID
+    }
+
+    @Test("resetDailyHike clears stale reason on regeneration")
+    func testResetDailyHikeClearsStaleReason() throws {
+        let context = try createTestContext()
+        let dog = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create a hike and mark it stale with scheduleChanged reason
+        _ = manager.getDailyHikes(for: monday)
+        manager.markAffectedHikesStale(for: dog.id, after: Date())
+
+        let staleHikes = manager.fetchExistingHikes(for: monday)
+        #expect(staleHikes[0].staleReason == .scheduleChanged)
+        #expect(staleHikes[0].isStale == true)
+
+        // Reset the stale hike
+        manager.resetDailyHike(staleHikes[0])
+
+        // Regenerate - new hike should have no stale reason
+        let freshHikes = manager.getDailyHikes(for: monday)
+        #expect(freshHikes[0].staleReason == nil)
+        #expect(freshHikes[0].isStale == false)
+    }
+
+    @Test("resetDailyHike regenerates with current schedule")
+    func testResetDailyHikeUsesCurrentSchedule() throws {
+        let context = try createTestContext()
+        let dog = createTestDog(name: "Buddy", regularSchedule: [.monday], in: context)
+
+        let manager = DailyHikeManager(modelContext: context)
+        let monday = getMonday()
+
+        // Create initial hike
+        let hikes = manager.getDailyHikes(for: monday)
+        #expect(hikes[0].participations.count == 1)
+        #expect(hikes[0].participations[0].dogName == "Buddy")
+
+        // Change dog's schedule to remove Monday
+        dog.regularSchedule = [.tuesday, .wednesday]
+
+        // Reset the hike
+        manager.resetDailyHike(hikes[0])
+
+        // Regenerate - Buddy should no longer be included
+        let newHikes = manager.getDailyHikes(for: monday)
+        #expect(newHikes.isEmpty)  // No dogs scheduled for Monday anymore
     }
 }

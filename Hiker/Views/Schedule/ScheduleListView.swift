@@ -11,15 +11,17 @@ import SwiftData
 struct ScheduleListView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \CompletedHike.date, order: .reverse)
-    private var completedHikes: [CompletedHike]
+    @Query(sort: \DailyHike.date, order: .reverse)
+    private var allDailyHikes: [DailyHike]
+
+    private var completedHikes: [DailyHike] {
+        allDailyHikes.filter { $0.isCompleted }
+    }
 
     @Query(filter: #Predicate<Dog> { $0.isActive }, sort: \Dog.name)
     private var activeDogs: [Dog]
 
     @Query private var scheduleOverrides: [ScheduleOverride]
-
-    @State private var dailySchedules: [Date: DailyHike] = [:]
 
     private let daysBack = 30
     private let daysForward = 60
@@ -74,7 +76,7 @@ struct ScheduleListView: View {
             }
             .listStyle(.plain)
             .onAppear {
-                loadSchedules()
+                loadHikesIfNeeded()
                 // Scroll to today on appear
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     withAnimation {
@@ -83,47 +85,51 @@ struct ScheduleListView: View {
                 }
             }
             .onChange(of: activeDogs) {
-                loadSchedules()
+                loadHikesIfNeeded()
             }
             .onChange(of: scheduleOverrides) {
-                loadSchedules()
+                loadHikesIfNeeded()
             }
         }
     }
 
     // MARK: - Helper Methods
 
-    private func loadSchedules() {
+    private func loadHikesIfNeeded() {
         let manager = DailyHikeManager(modelContext: modelContext)
-
+        // Lazy-load hikes for visible dates (today and nearby)
         for date in allDates {
-            let schedule = manager.dailySchedule(for: date)
-            dailySchedules[date] = schedule
+            _ = manager.getDailyHikes(for: date)
         }
     }
 
-    private func completedHikesFor(date: Date) -> [CompletedHike] {
+    private func completedHikesFor(date: Date) -> [DailyHike] {
         let calendar = Calendar.current
         return completedHikes.filter { hike in
             calendar.isDate(hike.date, inSameDayAs: date)
         }
     }
 
-    private func scheduledDogsFor(date: Date) -> [Dog] {
-        guard let schedule = dailySchedules[date] else { return [] }
-
-        // Combine all dogs from both hikes
-        var allDogs = schedule.hike1?.dogs ?? []
-        if let hike2Dogs = schedule.hike2?.dogs {
-            allDogs.append(contentsOf: hike2Dogs)
+    private func hikesFor(date: Date) -> [DailyHike] {
+        let calendar = Calendar.current
+        return allDailyHikes.filter { hike in
+            calendar.isDate(hike.date, inSameDayAs: date)
         }
+    }
 
-        return allDogs
+    private func scheduledDogsFor(date: Date) -> [Dog] {
+        let hikes = hikesFor(date: date).filter { $0.isPlanned }
+
+        // Get all dog IDs from participations
+        let dogIds = Set(hikes.flatMap { $0.participations.map { $0.dogId } })
+
+        // Return dogs that match those IDs
+        return activeDogs.filter { dogIds.contains($0.id) }
     }
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)

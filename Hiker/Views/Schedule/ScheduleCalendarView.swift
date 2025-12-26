@@ -11,8 +11,12 @@ import SwiftData
 struct ScheduleCalendarView: View {
     @Environment(\.modelContext) private var modelContext
 
-    @Query(sort: \CompletedHike.date, order: .reverse)
-    private var completedHikes: [CompletedHike]
+    @Query(sort: \DailyHike.date, order: .reverse)
+    private var allDailyHikes: [DailyHike]
+
+    private var completedHikes: [DailyHike] {
+        allDailyHikes.filter { $0.isCompleted }
+    }
 
     @Query(filter: #Predicate<Dog> { $0.isActive }, sort: \Dog.name)
     private var activeDogs: [Dog]
@@ -20,7 +24,6 @@ struct ScheduleCalendarView: View {
     @Query private var scheduleOverrides: [ScheduleOverride]
 
     @State private var currentMonth: Date = Date()
-    @State private var dailySchedules: [Date: DailyHike] = [:]
 
     private var calendar: Calendar {
         Calendar.current
@@ -49,23 +52,23 @@ struct ScheduleCalendarView: View {
             ScrollView {
                 MonthGridView(
                     month: currentMonth,
-                    dailySchedules: dailySchedules,
+                    allDailyHikes: allDailyHikes,
                     completedHikes: completedHikes
                 )
                 .padding()
             }
         }
         .onAppear {
-            loadSchedules()
+            loadHikesForMonth()
         }
         .onChange(of: currentMonth) {
-            loadSchedules()
+            loadHikesForMonth()
         }
         .onChange(of: activeDogs) {
-            loadSchedules()
+            loadHikesForMonth()
         }
         .onChange(of: scheduleOverrides) {
-            loadSchedules()
+            loadHikesForMonth()
         }
     }
 
@@ -77,14 +80,13 @@ struct ScheduleCalendarView: View {
         }
     }
 
-    private func loadSchedules() {
+    private func loadHikesForMonth() {
         let manager = DailyHikeManager(modelContext: modelContext)
 
         // Load schedules for the entire month
         let monthDays = getDaysInMonth(currentMonth)
         for date in monthDays {
-            let schedule = manager.dailySchedule(for: date)
-            dailySchedules[date] = schedule
+            _ = manager.getDailyHikes(for: date)
         }
     }
 
@@ -99,14 +101,12 @@ struct ScheduleCalendarView: View {
     }
 }
 
-// MonthNavigationHeader and WeekdayHeader now in Views/Components/
-
 // MARK: - Month Grid View
 
 struct MonthGridView: View {
     let month: Date
-    let dailySchedules: [Date: DailyHike]
-    let completedHikes: [CompletedHike]
+    let allDailyHikes: [DailyHike]
+    let completedHikes: [DailyHike]
 
     private var calendar: Calendar {
         Calendar.current
@@ -153,7 +153,7 @@ struct MonthGridView: View {
                         date: date,
                         isToday: calendar.isDate(date, inSameDayAs: today),
                         isCurrentMonth: calendar.isDate(date, equalTo: month, toGranularity: .month),
-                        schedule: dailySchedules[date],
+                        hikes: hikesFor(date: date),
                         completedHikes: completedHikesFor(date: date)
                     )
                 } else {
@@ -164,7 +164,13 @@ struct MonthGridView: View {
         }
     }
 
-    private func completedHikesFor(date: Date) -> [CompletedHike] {
+    private func hikesFor(date: Date) -> [DailyHike] {
+        allDailyHikes.filter { hike in
+            calendar.isDate(hike.date, inSameDayAs: date)
+        }
+    }
+
+    private func completedHikesFor(date: Date) -> [DailyHike] {
         completedHikes.filter { hike in
             calendar.isDate(hike.date, inSameDayAs: date)
         }
@@ -177,8 +183,8 @@ struct CalendarDayCell: View {
     let date: Date
     let isToday: Bool
     let isCurrentMonth: Bool
-    let schedule: DailyHike?
-    let completedHikes: [CompletedHike]
+    let hikes: [DailyHike]
+    let completedHikes: [DailyHike]
 
     private var dayFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -187,8 +193,7 @@ struct CalendarDayCell: View {
     }
 
     private var hasScheduledDogs: Bool {
-        guard let schedule = schedule else { return false }
-        return !schedule.isEmpty
+        hikes.contains { $0.isPlanned && !$0.participations.isEmpty }
     }
 
     private var hasCompletedHikes: Bool {
@@ -235,7 +240,7 @@ struct CalendarDayCell: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)

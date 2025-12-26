@@ -54,7 +54,7 @@ struct ScheduleOverrideTests {
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(
             for: Client.self, Dog.self, Payment.self, ScheduleOverride.self,
-            HikingLocation.self, CompletedHike.self, DogAttendance.self,
+            HikingLocation.self, DailyHike.self, HikeParticipation.self,
             configurations: config
         )
         return container.mainContext
@@ -231,9 +231,9 @@ struct ScheduleOverrideTests {
 
         // Initially, dog should be scheduled on Monday
         let manager = DailyHikeManager(modelContext: context)
-        let initialSchedule = manager.dailySchedule(for: monday)
-        let initialDogs = initialSchedule.hikes.flatMap { $0.dogs }
-        #expect(initialDogs.contains(where: { $0.id == dog.id }))
+        let initialHikes = manager.getDailyHikes(for: monday)
+        let initialDogIds = initialHikes.flatMap { $0.participations.map { $0.dogId } }
+        #expect(initialDogIds.contains(dog.id))
 
         // Add .isAbsent override for Monday
         let override = ScheduleOverride(
@@ -244,9 +244,9 @@ struct ScheduleOverrideTests {
         context.insert(override)
 
         // Now dog should NOT be scheduled on Monday
-        let updatedSchedule = manager.dailySchedule(for: monday)
-        let updatedDogs = updatedSchedule.hikes.flatMap { $0.dogs }
-        #expect(!updatedDogs.contains(where: { $0.id == dog.id }))
+        let updatedHikes = manager.getDailyHikes(for: monday)
+        let updatedDogIds = updatedHikes.flatMap { $0.participations.map { $0.dogId } }
+        #expect(!updatedDogIds.contains(dog.id))
     }
 
     @Test("DailyHikeManager respects .isPresent override")
@@ -268,9 +268,9 @@ struct ScheduleOverrideTests {
 
         // Initially, dog should NOT be scheduled on Monday
         let manager = DailyHikeManager(modelContext: context)
-        let initialSchedule = manager.dailySchedule(for: monday)
-        let initialDogs = initialSchedule.hikes.flatMap { $0.dogs }
-        #expect(!initialDogs.contains(where: { $0.id == dog.id }))
+        let initialHikes = manager.getDailyHikes(for: monday)
+        let initialDogIds = initialHikes.flatMap { $0.participations.map { $0.dogId } }
+        #expect(!initialDogIds.contains(dog.id))
 
         // Add .isPresent override for Monday
         let override = ScheduleOverride(
@@ -281,9 +281,9 @@ struct ScheduleOverrideTests {
         context.insert(override)
 
         // Now dog SHOULD be scheduled on Monday
-        let updatedSchedule = manager.dailySchedule(for: monday)
-        let updatedDogs = updatedSchedule.hikes.flatMap { $0.dogs }
-        #expect(updatedDogs.contains(where: { $0.id == dog.id }))
+        let updatedHikes = manager.getDailyHikes(for: monday)
+        let updatedDogIds = updatedHikes.flatMap { $0.participations.map { $0.dogId } }
+        #expect(updatedDogIds.contains(dog.id))
     }
 
     // MARK: - Badge Logic Tests

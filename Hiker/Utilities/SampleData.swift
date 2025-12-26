@@ -20,8 +20,8 @@ class SampleData {
         try? context.delete(model: Payment.self)
         try? context.delete(model: ScheduleOverride.self)
         try? context.delete(model: HikingLocation.self)
-        try? context.delete(model: CompletedHike.self)
-        try? context.delete(model: DogAttendance.self)
+        try? context.delete(model: DailyHike.self)
+        try? context.delete(model: HikeParticipation.self)
 
         // Create hiking locations in Halifax area
         let locations = createHikingLocations()
@@ -36,12 +36,12 @@ class SampleData {
             }
         }
 
-        // Create sample completed hikes first (for testing historical views and payment linking)
-        let completedHikes = createCompletedHikes(for: clientsAndDogs, locations: locations)
-        completedHikes.forEach { context.insert($0) }
+        // Create sample daily hikes (completed ones for past dates)
+        let dailyHikes = createDailyHikes(for: clientsAndDogs, locations: locations)
+        dailyHikes.forEach { context.insert($0) }
 
         // Create some sample payments linked to completed hikes
-        let payments = createSamplePayments(for: clientsAndDogs, completedHikes: completedHikes)
+        let payments = createSamplePayments(for: clientsAndDogs, dailyHikes: dailyHikes)
         payments.forEach { context.insert($0) }
 
         // Create some realistic schedule overrides
@@ -476,7 +476,7 @@ class SampleData {
         return clients
     }
 
-    private static func createSamplePayments(for clients: [Client], completedHikes: [CompletedHike]) -> [Payment] {
+    private static func createSamplePayments(for clients: [Client], dailyHikes: [DailyHike]) -> [Payment] {
         var payments: [Payment] = []
         let calendar = Calendar.current
         let allDogs = clients.flatMap { $0.dogs }
@@ -484,20 +484,20 @@ class SampleData {
         // Create a dictionary to quickly find dogs by ID
         let dogsByName = Dictionary(uniqueKeysWithValues: allDogs.map { ($0.name, $0) })
 
-        // For each completed hike, create payment records for most (but not all) dog attendances
-        for hike in completedHikes {
+        // For each completed hike, create payment records for most (but not all) dog participations
+        for hike in dailyHikes.filter({ $0.isCompleted }) {
             // Randomly decide if this hike's payments are current (~85% paid)
             let isPaidHike = Double.random(in: 0...1) < 0.85
 
-            for attendance in hike.dogAttendances {
-                guard let dog = dogsByName[attendance.dogName] else { continue }
+            for participation in hike.participations {
+                guard let dog = dogsByName[participation.dogName] else { continue }
 
                 // Create payment for this specific hike if it's a paid hike
                 if isPaidHike {
                     let payment = Payment(
                         dog: dog,
                         date: hike.date,
-                        amount: attendance.amountCharged,
+                        amount: participation.rate,
                         paid: true,
                         method: "e-transfer",
                         completedHikeId: hike.id
@@ -662,8 +662,8 @@ class SampleData {
         return overrides
     }
 
-    private static func createCompletedHikes(for clients: [Client], locations: [HikingLocation]) -> [CompletedHike] {
-        var completedHikes: [CompletedHike] = []
+    private static func createDailyHikes(for clients: [Client], locations: [HikingLocation]) -> [DailyHike] {
+        var dailyHikes: [DailyHike] = []
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
 
@@ -713,32 +713,34 @@ class SampleData {
                     dogCount: dogs.count
                 )
 
-                let hike1 = CompletedHike(
+                let hike1 = DailyHike(
                     date: hikeDate,
                     hikeNumber: 1,
+                    completedAt: hikeDate,  // Mark as completed
                     routeLatitudes: lats,
                     routeLongitudes: lons,
-                    trailLocationId: trail?.id,
-                    trailName: trail?.name,
                     totalDistance: Double.random(in: 4000...6000),
+                    selectedTrailId: trail?.id,
+                    trailName: trail?.name,
                     notes: daysAgo == 1 ? "Beautiful day, great hike!" : nil
                 )
 
-                // Create attendance records for each dog
+                // Create participation records for each dog
                 for (index, dog) in dogs.enumerated() {
-                    let attendance = DogAttendance(
+                    let participation = HikeParticipation(
                         dogId: dog.id,
                         dogName: dog.name,
                         pickupOrder: index + 1,
                         pickupLatitude: dog.locationLatitude,
                         pickupLongitude: dog.locationLongitude,
                         pickupAddress: dog.locationAddress,
-                        amountCharged: dog.paymentRate
+                        rate: dog.paymentRate,
+                        isConfirmed: true  // Completed hikes have confirmed attendance
                     )
-                    attendance.completedHike = hike1
+                    participation.dailyHike = hike1
                 }
 
-                completedHikes.append(hike1)
+                dailyHikes.append(hike1)
             }
 
             // Create Hike 2 (Sackville/Beaver Bank) if there are dogs
@@ -751,35 +753,37 @@ class SampleData {
                     dogCount: dogs.count
                 )
 
-                let hike2 = CompletedHike(
+                let hike2 = DailyHike(
                     date: hikeDate,
                     hikeNumber: 2,
+                    completedAt: hikeDate,  // Mark as completed
                     routeLatitudes: lats,
                     routeLongitudes: lons,
-                    trailLocationId: trail?.id,
-                    trailName: trail?.name,
                     totalDistance: Double.random(in: 4500...6500),
+                    selectedTrailId: trail?.id,
+                    trailName: trail?.name,
                     notes: daysAgo == 2 ? "Dogs loved the lake!" : nil
                 )
 
-                // Create attendance records for each dog
+                // Create participation records for each dog
                 for (index, dog) in dogs.enumerated() {
-                    let attendance = DogAttendance(
+                    let participation = HikeParticipation(
                         dogId: dog.id,
                         dogName: dog.name,
                         pickupOrder: index + 1,
                         pickupLatitude: dog.locationLatitude,
                         pickupLongitude: dog.locationLongitude,
                         pickupAddress: dog.locationAddress,
-                        amountCharged: dog.paymentRate
+                        rate: dog.paymentRate,
+                        isConfirmed: true  // Completed hikes have confirmed attendance
                     )
-                    attendance.completedHike = hike2
+                    participation.dailyHike = hike2
                 }
 
-                completedHikes.append(hike2)
+                dailyHikes.append(hike2)
             }
         }
 
-        return completedHikes
+        return dailyHikes
     }
 }

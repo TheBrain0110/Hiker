@@ -110,8 +110,8 @@ struct SettingsView: View {
             try? modelContext.delete(model: Payment.self)
             try? modelContext.delete(model: ScheduleOverride.self)
             try? modelContext.delete(model: HikingLocation.self)
-            try? modelContext.delete(model: CompletedHike.self)
-            try? modelContext.delete(model: DogAttendance.self)
+            try? modelContext.delete(model: DailyHike.self)
+            try? modelContext.delete(model: HikeParticipation.self)
         }
     }
 }
@@ -155,7 +155,7 @@ struct DataDetailView: View {
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)

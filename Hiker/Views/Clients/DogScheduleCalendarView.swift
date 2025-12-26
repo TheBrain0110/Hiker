@@ -14,9 +14,13 @@ struct DogScheduleCalendarView: View {
 
     // Query all data and filter by dog ID in computed properties
     @Query private var allOverrides: [ScheduleOverride]
-    @Query private var allAttendances: [DogAttendance]
-    @Query(sort: \CompletedHike.date, order: .reverse)
-    private var completedHikes: [CompletedHike]
+    @Query private var allParticipations: [HikeParticipation]
+    @Query(sort: \DailyHike.date, order: .reverse)
+    private var allDailyHikes: [DailyHike]
+
+    private var completedHikes: [DailyHike] {
+        allDailyHikes.filter { $0.isCompleted }
+    }
 
     @State private var currentMonth: Date = Date()
 
@@ -30,8 +34,8 @@ struct DogScheduleCalendarView: View {
         allOverrides.filter { $0.dogId == dog.id }
     }
 
-    private var dogAttendances: [DogAttendance] {
-        allAttendances.filter { $0.dogId == dog.id }
+    private var dogParticipations: [HikeParticipation] {
+        allParticipations.filter { $0.dogId == dog.id }
     }
 
     // MARK: - Body
@@ -61,7 +65,7 @@ struct DogScheduleCalendarView: View {
                     dog: dog,
                     month: currentMonth,
                     dogOverrides: dogOverrides,
-                    dogAttendances: dogAttendances,
+                    dogParticipations: dogParticipations,
                     completedHikes: completedHikes,
                     onDateTap: handleDateTap
                 )
@@ -85,9 +89,9 @@ struct DogScheduleCalendarView: View {
         guard normalizedDate >= calendar.startOfDay(for: Date()) else { return }
 
         // Don't allow editing dates with completed hikes
-        let hasCompletedHike = dogAttendances.contains { attendance in
-            guard let hikeDate = attendance.completedHike?.date else { return false }
-            return calendar.isDate(hikeDate, inSameDayAs: normalizedDate)
+        let hasCompletedHike = dogParticipations.contains { participation in
+            guard let hike = participation.dailyHike, hike.isCompleted else { return false }
+            return calendar.isDate(hike.date, inSameDayAs: normalizedDate)
         }
         guard !hasCompletedHike else { return }
 
@@ -107,6 +111,10 @@ struct DogScheduleCalendarView: View {
             modelContext.insert(override)
         }
 
+        // Mark affected hikes as stale since schedule changed
+        let manager = DailyHikeManager(modelContext: modelContext)
+        manager.markAffectedHikesStale(for: dog.id, after: normalizedDate)
+
         // Haptic feedback on iOS
         #if os(iOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -120,8 +128,8 @@ private struct DogMonthGridView: View {
     let dog: Dog
     let month: Date
     let dogOverrides: [ScheduleOverride]
-    let dogAttendances: [DogAttendance]
-    let completedHikes: [CompletedHike]
+    let dogParticipations: [HikeParticipation]
+    let completedHikes: [DailyHike]
     let onDateTap: (Date) -> Void
 
     private var calendar: Calendar {
@@ -166,7 +174,7 @@ private struct DogMonthGridView: View {
                         dog: dog,
                         isCurrentMonth: calendar.isDate(date, equalTo: month, toGranularity: .month),
                         dogOverrides: dogOverrides,
-                        dogAttendances: dogAttendances,
+                        dogParticipations: dogParticipations,
                         completedHikes: completedHikes,
                         onTap: onDateTap
                     )
@@ -186,8 +194,8 @@ private struct DogCalendarDayCell: View {
     let dog: Dog
     let isCurrentMonth: Bool
     let dogOverrides: [ScheduleOverride]
-    let dogAttendances: [DogAttendance]
-    let completedHikes: [CompletedHike]
+    let dogParticipations: [HikeParticipation]
+    let completedHikes: [DailyHike]
     let onTap: (Date) -> Void
 
     private var calendar: Calendar {
@@ -215,9 +223,9 @@ private struct DogCalendarDayCell: View {
         let isPastDate = normalizedDate < today
 
         // Check for completed hike (on any date, including today)
-        let isCompleted = dogAttendances.contains { attendance in
-            guard let hikeDate = attendance.completedHike?.date else { return false }
-            return calendar.isDate(hikeDate, inSameDayAs: normalizedDate)
+        let isCompleted = dogParticipations.contains { participation in
+            guard let hike = participation.dailyHike, hike.isCompleted else { return false }
+            return calendar.isDate(hike.date, inSameDayAs: normalizedDate)
         }
 
         // For future/today without completed hike: check schedule
@@ -326,14 +334,14 @@ private struct DogCalendarDayCell: View {
 private struct DogScheduleState {
     let isScheduled: Bool      // Regular schedule OR override.isPresent
     let isAbsent: Bool         // Override.isAbsent exists
-    let isCompleted: Bool      // DogAttendance exists (past only)
+    let isCompleted: Bool      // HikeParticipation exists with completed hike (past only)
     let isPast: Bool
     let isToday: Bool
     let hasOverride: Bool      // Used to distinguish blue (override) vs orange (regular)
 }
 
 #Preview {
-    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, CompletedHike.self, DogAttendance.self])
+    let schema = Schema([Client.self, Dog.self, Payment.self, ScheduleOverride.self, HikingLocation.self, DailyHike.self, HikeParticipation.self])
     let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: schema, configurations: [config])
     SampleData.createSampleData(in: container.mainContext)

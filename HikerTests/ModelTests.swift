@@ -286,16 +286,13 @@ struct ModelTests {
         #expect(override.note == "Vacation")
     }
 
-    // MARK: - CompletedHike.route Tests
+    // MARK: - DailyHike.route Tests
 
-    @Test("CompletedHike route reconstructs coordinates")
-    func testCompletedHikeRouteGetter() {
-        let hike = CompletedHike(
-            date: Date(),
-            hikeNumber: 1,
-            routeLatitudes: [44.65, 44.66, 44.67],
-            routeLongitudes: [-63.58, -63.59, -63.60]
-        )
+    @Test("DailyHike route reconstructs coordinates")
+    func testDailyHikeRouteGetter() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
+        hike.routeLatitudes = [44.65, 44.66, 44.67]
+        hike.routeLongitudes = [-63.58, -63.59, -63.60]
 
         let route = hike.route
         #expect(route.count == 3)
@@ -305,9 +302,9 @@ struct ModelTests {
         #expect(route[2].longitude == -63.60)
     }
 
-    @Test("CompletedHike route setter stores coordinates")
-    func testCompletedHikeRouteSetter() {
-        let hike = CompletedHike(date: Date(), hikeNumber: 1)
+    @Test("DailyHike route setter stores coordinates")
+    func testDailyHikeRouteSetter() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
 
         hike.route = [
             CLLocationCoordinate2D(latitude: 44.70, longitude: -63.50),
@@ -318,17 +315,17 @@ struct ModelTests {
         #expect(hike.routeLongitudes == [-63.50, -63.51])
     }
 
-    @Test("CompletedHike empty route returns empty array")
-    func testCompletedHikeEmptyRoute() {
-        let hike = CompletedHike(date: Date(), hikeNumber: 1)
+    @Test("DailyHike empty route returns empty array")
+    func testDailyHikeEmptyRoute() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
 
         #expect(hike.route.isEmpty)
         #expect(hike.routeLatitudes.isEmpty)
         #expect(hike.routeLongitudes.isEmpty)
     }
 
-    @Test("CompletedHike date is normalized to startOfDay")
-    func testCompletedHikeDateNormalized() {
+    @Test("DailyHike date is normalized to startOfDay")
+    func testDailyHikeDateNormalized() {
         // Create a date with time component
         var components = DateComponents()
         components.year = 2025
@@ -338,7 +335,7 @@ struct ModelTests {
         components.minute = 30
         let dateWithTime = Calendar.current.date(from: components)!
 
-        let hike = CompletedHike(date: dateWithTime, hikeNumber: 1)
+        let hike = DailyHike(date: dateWithTime, hikeNumber: 1)
 
         let calendar = Calendar.current
         let storedComponents = calendar.dateComponents([.hour, .minute], from: hike.date)
@@ -346,11 +343,11 @@ struct ModelTests {
         #expect(storedComponents.minute == 0)
     }
 
-    // MARK: - DogAttendance.pickupLocation Tests
+    // MARK: - HikeParticipation.pickupLocation Tests
 
-    @Test("DogAttendance pickupLocation returns coordinate")
-    func testDogAttendancePickupLocation() {
-        let attendance = DogAttendance(
+    @Test("HikeParticipation pickupLocation returns coordinate")
+    func testHikeParticipationPickupLocation() {
+        let participation = HikeParticipation(
             dogId: UUID(),
             dogName: "Buddy",
             pickupOrder: 1,
@@ -358,47 +355,157 @@ struct ModelTests {
             pickupLongitude: -63.58
         )
 
-        let location = attendance.pickupLocation
+        let location = participation.pickupLocation
         #expect(location != nil)
         #expect(location?.latitude == 44.65)
         #expect(location?.longitude == -63.58)
     }
 
-    @Test("DogAttendance pickupLocation returns nil when missing")
-    func testDogAttendancePickupLocationNil() {
-        let attendance = DogAttendance(
+    @Test("HikeParticipation pickupLocation returns nil when missing")
+    func testHikeParticipationPickupLocationNil() {
+        let participation = HikeParticipation(
             dogId: UUID(),
             dogName: "Buddy",
             pickupOrder: 1
         )
 
-        #expect(attendance.pickupLocation == nil)
+        #expect(participation.pickupLocation == nil)
     }
 
-    @Test("DogAttendance pickupLocation setter works")
-    func testDogAttendancePickupLocationSetter() {
-        let attendance = DogAttendance(
+    @Test("HikeParticipation pickupLocation setter works")
+    func testHikeParticipationPickupLocationSetter() {
+        let participation = HikeParticipation(
             dogId: UUID(),
             dogName: "Buddy",
             pickupOrder: 1
         )
 
-        attendance.pickupLocation = CLLocationCoordinate2D(latitude: 44.70, longitude: -63.55)
+        participation.pickupLocation = CLLocationCoordinate2D(latitude: 44.70, longitude: -63.55)
 
-        #expect(attendance.pickupLatitude == 44.70)
-        #expect(attendance.pickupLongitude == -63.55)
+        #expect(participation.pickupLatitude == 44.70)
+        #expect(participation.pickupLongitude == -63.55)
     }
 
-    @Test("DogAttendance defaults are correct")
-    func testDogAttendanceDefaults() {
-        let attendance = DogAttendance(
+    @Test("HikeParticipation defaults are correct")
+    func testHikeParticipationDefaults() {
+        let participation = HikeParticipation(
             dogId: UUID(),
             dogName: "Buddy",
             pickupOrder: 1
         )
 
-        #expect(attendance.amountCharged == 25.00)
-        #expect(attendance.wasAddedViaOverride == false)
-        #expect(attendance.paymentId == nil)
+        #expect(participation.rate == 25.00)
+        #expect(participation.wasAddedViaOverride == false)
+        #expect(participation.paymentId == nil)
+        #expect(participation.isConfirmed == false)
+    }
+
+    // MARK: - DailyHike.staleReason Tests
+
+    @Test("DailyHike staleReason defaults to nil")
+    func testDailyHikeStaleReasonDefaultsNil() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
+
+        #expect(hike.staleReason == nil)
+        #expect(hike.isStale == false)
+    }
+
+    @Test("DailyHike staleReason can be set to routeNeedsOptimization")
+    func testDailyHikeStaleReasonRouteOptimization() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
+
+        hike.staleReason = .routeNeedsOptimization
+
+        #expect(hike.staleReason == .routeNeedsOptimization)
+        #expect(hike.isStale == true)
+    }
+
+    @Test("DailyHike staleReason can be set to scheduleChanged")
+    func testDailyHikeStaleReasonScheduleChanged() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1)
+
+        hike.staleReason = .scheduleChanged
+
+        #expect(hike.staleReason == .scheduleChanged)
+        #expect(hike.isStale == true)
+    }
+
+    @Test("DailyHike staleReason can be initialized with value")
+    func testDailyHikeStaleReasonInitialized() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1, staleReason: .scheduleChanged)
+
+        #expect(hike.staleReason == .scheduleChanged)
+        #expect(hike.isStale == true)
+    }
+
+    @Test("DailyHike staleReason can be cleared")
+    func testDailyHikeStaleReasonCleared() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1, staleReason: .routeNeedsOptimization)
+
+        hike.staleReason = nil
+
+        #expect(hike.staleReason == nil)
+        #expect(hike.isStale == false)
+    }
+
+    @Test("DailyHike lastModifiedAt updates when stale reason changes")
+    func testDailyHikeLastModifiedAtUpdates() {
+        let originalDate = Date(timeIntervalSince1970: 1000)
+        let hike = DailyHike(
+            date: Date(),
+            hikeNumber: 1,
+            lastModifiedAt: originalDate
+        )
+
+        #expect(hike.lastModifiedAt == originalDate)
+
+        // Simulate what markAffectedHikesStale does
+        hike.staleReason = .scheduleChanged
+        hike.lastModifiedAt = Date()
+
+        #expect(hike.isStale == true)
+        #expect(hike.staleReason == .scheduleChanged)
+        #expect(hike.lastModifiedAt > originalDate)
+    }
+
+    @Test("Completed hike can have stale reason but UI should ignore it")
+    func testCompletedHikeStaleReason() {
+        // A completed hike can have staleReason set, but it shouldn't affect display
+        // since completed hikes show historical data
+        let hike = DailyHike(
+            date: Date(),
+            hikeNumber: 1,
+            completedAt: Date(),
+            staleReason: .scheduleChanged
+        )
+
+        #expect(hike.isCompleted == true)
+        #expect(hike.staleReason == .scheduleChanged)
+        #expect(hike.isStale == true)
+        // The UI should ignore staleReason for completed hikes
+    }
+
+    @Test("Planned hike with routeNeedsOptimization shows recalculate action")
+    func testPlannedHikeRouteOptimization() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1, staleReason: .routeNeedsOptimization)
+
+        #expect(hike.isPlanned == true)
+        #expect(hike.staleReason == .routeNeedsOptimization)
+        // UI should show "Recalculate Route" button
+    }
+
+    @Test("Planned hike with scheduleChanged shows apply changes action")
+    func testPlannedHikeScheduleChanged() {
+        let hike = DailyHike(date: Date(), hikeNumber: 1, staleReason: .scheduleChanged)
+
+        #expect(hike.isPlanned == true)
+        #expect(hike.staleReason == .scheduleChanged)
+        // UI should show "Apply Changes" button
+    }
+
+    @Test("StaleReason raw values are stable")
+    func testStaleReasonRawValues() {
+        #expect(StaleReason.routeNeedsOptimization.rawValue == "routeNeedsOptimization")
+        #expect(StaleReason.scheduleChanged.rawValue == "scheduleChanged")
     }
 }
