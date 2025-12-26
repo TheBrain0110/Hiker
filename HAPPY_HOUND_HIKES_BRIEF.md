@@ -349,19 +349,37 @@ Represents a trail used for hikes.
 }
 ```
 
-### DailyHike (Computed View Model, NOT persistent)
-Represents today's hike schedule (computed from Dog + ScheduleException data).
+### DailyHike (Planned: Unified Persistent Model)
+**Current:** Computed view model (ephemeral, regenerated on each view)
+**Future:** Unified persistent model supporting full lifecycle (planned → customized → completed)
 
 ```
-struct DailyHike {
-    let date: Date
-    let hike1: [Dog]                             // Ordered by route optimization
-    let hike2: [Dog]
-    let route1: [CLLocationCoordinate2D]         // Pickup order + trail
-    let route2: [CLLocationCoordinate2D]
-    let suggestedTrail: HikingLocation?
+@Model
+final class DailyHike {
+    var date: Date                               // Day hike occurs (normalized to startOfDay)
+    var hikeNumber: Int                          // 1 or 2
+    var completedAt: Date?                       // nil = planned, set = completed
+    var routeLatitudes: [Double]                 // Cached optimized route
+    var routeLongitudes: [Double]
+    var totalDistance: Double
+    var selectedTrailId: UUID?                   // User-selected or auto-suggested
+    var trailName: String?                       // Denormalized
+    var notes: String?
+    @Relationship(deleteRule: .cascade)
+    var dogAttendances: [DogAttendance]          // Planned or actual attendance
 }
 ```
+
+**Lifecycle:**
+1. **Created on first access** - When user views a future date, computed from Dog schedules + ScheduleOverrides, then persisted
+2. **Customized** - User can manually reorder route, select different trail, add/remove dogs
+3. **Completed** - Mark as complete sets `completedAt`, preserves actual attendance and route
+
+**Benefits:**
+- Expensive routing (future: real roads) computed once and cached
+- User customizations persist between views
+- Single model for entire hike lifecycle (eliminates separate CompletedHike)
+- "Reset" capability to regenerate from rules when needed
 
 ---
 
@@ -391,6 +409,117 @@ struct DailyHike {
 17. Photo uploads or dog profiles
 18. Data export/backup
 19. Multi-user support (unlikely for this use case)
+
+---
+
+## Future Roadmap: Enhanced Integrations & Automation
+
+**Status:** Planning / Design Phase
+**Last Updated:** 2025-12-25
+
+### System Integrations (Planned)
+
+**1. Contacts Integration (Hybrid Approach)**
+- Add `contactIdentifier: String?` to Client model to link with system Contacts
+- Pull phone numbers and addresses from linked contacts (avoid duplication)
+- Embedded call/text buttons using contact data
+- Fallback to manual entry for clients without linked contacts
+- Preserve custom business data (dogs, schedules, payments) in app models
+- Benefits: Auto-updates when contact info changes, native communication patterns
+
+**2. Maps Integration (Research)**
+- Investigate API access to iOS Maps app saved locations/guides
+- Goal: Select a Maps guide folder to use as hiking locations list
+- Status: No known public API currently available
+- Would eliminate manual location management if feasible
+
+**3. HealthKit/Fitness Integration**
+- Match completed hikes to Apple Health workouts (`.walking`/`.hiking` activity type)
+- Pull workout data: GPS route (`HKWorkoutRoute`), duration, distance, elevation, heart rate
+- Display workout stats overlay in completed hike cards
+- Compare planned route vs actual walked route
+- Benefits: Richer historical data without manual tracking
+
+**4. Photos Integration**
+- Query Photos library by creation date + location (PhotoKit)
+- Match photos taken during hike timeframe and near hiking location
+- Display thumbnail gallery in completed hike cards
+- Auto-suggest photos when marking hike complete
+- Benefits: Visual documentation with context
+
+### End-to-End Workflow Automation (Planned)
+
+**Full Day Lifecycle:**
+
+**Morning (Pre-Hike):**
+- Home screen widget showing today's hikes overview
+- Morning notification: "Time to start pickups - 8 dogs today"
+- Tap notification → Opens app to today's schedule
+
+**Pickup Phase:**
+- Live Activity: Real-time progress ("Picking up 3/8 - Next: Buddy at 123 Main St")
+- CoreLocation geofencing: Auto-detect arrivals at each pickup address
+- Auto-advance to next pickup when location detected
+- Manual check-off fallback if location detection fails
+- "Navigate to next pickup" button (opens Maps with directions)
+
+**At Trailhead:**
+- Auto-detect arrival at hiking location
+- Prompt: "Start Workout?" → Launch Apple Fitness workout tracking
+- Live Activity updates: "Hiking at Hemlock Ravine"
+
+**Drop-off Phase:**
+- Auto-generate reverse route (pickup order reversed)
+- Same Live Activity + geofencing as pickup phase
+- Progress tracking: "Dropping off 7/8 - Next: Buddy"
+
+**Completion:**
+- Arrive home or last drop-off complete
+- Prompt: "Mark hike complete?"
+- Auto-pull matched workout data and photos
+- Save as completed hike with actual attendance and route
+
+**Key Technologies:**
+- WidgetKit (home screen widget)
+- ActivityKit (Live Activity, iOS 16.1+)
+- CoreLocation (geofencing, region monitoring)
+- UserNotifications (morning reminders, arrival notifications)
+- HealthKit (workout matching)
+- PhotoKit (photo matching)
+
+### Advanced Routing (Planned)
+
+**Current:** Straight-line distance, brute-force TSP
+**Future:** Real road routing with travel time
+
+**Planned Enhancements:**
+- MapKit Directions API for actual driving routes and time estimates
+- Cache computed routes (expensive calculations)
+- "Reset Route" button to regenerate from current addresses
+- Manual drag-to-reorder pickup sequence (override optimization)
+- Time window support (e.g., "Don't arrive before 2pm")
+
+**Implementation Notes:**
+- Route caching requires unified DailyHike persistent model
+- Reset functionality deletes cached route and triggers re-optimization
+- Manual reordering saves customized sequence to DailyHike
+
+### Open Design Questions
+
+1. **DailyHike Invalidation Strategy**
+   - Question: When Dog.regularSchedule changes, invalidate existing future DailyHikes?
+   - Option A: Invalidate all → Data consistency, respects schedule changes
+   - Option B: Keep existing → Preserves user customizations (manual routes, trail selection)
+   - Option C: Flag as "stale" with warning, let user choose to regenerate or keep
+   - Decision: TBD during implementation
+
+2. **Contact Address Selection**
+   - Question: What if linked contact has multiple addresses?
+   - Approach: Prompt user to select primary pickup address during contact linking
+
+3. **Workout Matching Logic**
+   - Question: How to match hikes to workouts when multiple workouts exist same day?
+   - Approach: Match by time range (hike start ± tolerance) and activity type
 
 ---
 
@@ -552,10 +681,15 @@ TabView (5 tabs):
 
 ## Known Decisions & Rationale
 
-### Why No System Contacts Integration?
-- **Problem:** Contacts is one-contact-per-owner; dogs are in nickname field (fragile hack)
-- **Solution:** Custom Client/Dog model in SwiftData (cleaner, more flexible)
-- **Benefit:** App data stays independent; easier to add dog-specific fields later
+### Why Hybrid Contacts Integration (Not Full Reliance)?
+- **Problem:** System Contacts designed for individual people, not business clients with multiple dogs
+- **Original Decision:** Use custom Client/Dog models entirely (cleaner, more flexible)
+- **Revised Approach:** Hybrid integration (planned)
+  - Link to Contacts for standard info (phone, address) via `contactIdentifier`
+  - Keep custom models for dog-specific business data (schedules, rates, payments)
+  - Pull contact data when needed, don't duplicate
+  - Fallback to manual entry if no contact linked
+- **Benefits:** Avoid data duplication, native call/text UI, auto-updates from Contacts, while maintaining business data flexibility
 
 ### Why SwiftData + iCloud Over Core Data?
 - SwiftData is simpler, modern API (iOS 17+)
@@ -611,7 +745,7 @@ If any requirements seem unclear during development, refer back to this brief or
 
 ---
 
-**Document Version:** 2.0
+**Document Version:** 2.1
 **Created:** 2025-11-07
-**Last Updated:** 2025-12-16
-**Status:** In Development - Unified Schedule View Implementation
+**Last Updated:** 2025-12-25
+**Status:** In Development - Planning Future Integrations & Automation

@@ -54,12 +54,13 @@ xcodebuild test -scheme Hiker -destination 'platform=iOS Simulator,name=iPhone 1
 The app uses **SwiftData** with iCloud CloudKit sync. All models are located in `Hiker/Models/`.
 
 **Key Models:**
-- **Client** - Dog owner (name, contact info, address with geocoded coordinates)
+- **Client** - Dog owner (name, contact info, address with geocoded coordinates). *Planned: Add `contactIdentifier` for system Contacts integration*
 - **Dog** - Individual dog with regular weekly schedule, payment rate, pickup location
 - **ScheduleOverride** - Daily exceptions to regular schedules (`.isPresent` or `.isAbsent`)
 - **Payment** - Payment records linked to dogs (now includes `completedHikeId` to link to specific hikes)
 - **HikingLocation** - Trail locations with coordinates and region tags
-- **CompletedHike** - Historical record of completed hikes with actual attendance and route data
+- **DailyHike** - *Current:* View model (not persisted). *Planned:* Unified persistent model for entire hike lifecycle (planned → completed)
+- **CompletedHike** - Historical record of completed hikes with actual attendance and route data. *Planned: Merge into unified DailyHike model*
 - **DogAttendance** - Per-dog participation tracking for completed hikes (denormalized snapshots)
 
 **Critical Data Model Patterns:**
@@ -419,10 +420,65 @@ NavigationStack {
 - Geographic clustering in service area means most routes similar
 - User can manually reorder if desired (drag-to-reorder capability exists)
 
-### Why No System Contacts Integration?
-- System Contacts designed for individual people, not business clients with multiple dogs
-- Custom Client/Dog models provide flexibility for dog-specific fields
-- Cleaner separation of app data from personal contacts
+### Why Hybrid Contacts Integration (Not Full Reliance)?
+- **Original Decision:** No Contacts integration - System Contacts designed for individual people, not business clients with multiple dogs
+- **Revised Plan:** Hybrid approach (future enhancement)
+  - Link Client to system contact via `contactIdentifier: String?`
+  - Pull phone/address from Contacts (avoid duplication)
+  - Keep custom Client/Dog models for business data (schedules, payments, dog relationships)
+  - Fallback to manual entry if no contact linked
+- **Benefits:** Native call/text UI, auto-updates from Contacts, no data duplication, while maintaining business flexibility
+- **Reasoning:** Best of both worlds - leverage system integrations where appropriate, maintain custom business models where needed
+
+### Why Unified DailyHike Model (Planned)?
+- **Current State:** DailyHike is ephemeral view model, CompletedHike is separate persistent model
+- **Problem:** Future real road routing will be expensive to compute; need to cache results
+- **Solution:** Unified persistent model with lifecycle states (planned → customized → completed)
+  - Lazy persistence: Compute once on first access, then cache
+  - `completedAt: Date?` field distinguishes planned (nil) from completed (set)
+  - Supports user customizations (manual route reorder, trail selection) that persist
+  - "Reset" button to delete and regenerate from rules
+- **Benefits:** Single model, simpler architecture, caching enables expensive computations, preserves customizations
+- **Open Question:** Invalidation strategy when Dog schedules change (TBD during implementation)
+
+## Future Enhancements
+
+**Status:** Planning / Design Phase (December 2025)
+
+### 1. Unified DailyHike Persistent Model
+**Goal:** Single model for hike lifecycle (planned → completed), enabling route caching and customization persistence
+
+**Changes:**
+- Refactor `DailyHike` from view model to `@Model` class
+- Add fields: `completedAt`, `selectedTrailId`, `routeLatitudes/Longitudes`, `notes`
+- Lazy-load logic: Check for existing `DailyHike`, compute if missing
+- Migrate `CompletedHike` data, then remove model
+- Add "Reset Route" button in edit mode
+
+**See:** HAPPY_HOUND_HIKES_BRIEF.md "Future Roadmap" section
+
+### 2. System Integrations
+**Contacts** - Hybrid integration via `contactIdentifier`, pull phone/address, call/text buttons
+**HealthKit** - Match completed hikes to workouts, display GPS route/stats overlay
+**Photos** - Match photos by time+location, thumbnail gallery in completed hike cards
+**Maps** - Research API access to saved locations/guides (no known API currently)
+
+### 3. End-to-End Workflow Automation
+**Morning** - Widget + notification showing today's schedule
+**Pickup** - Live Activity with geofencing auto-advance, navigation to next pickup
+**Trailhead** - Auto-detect arrival, prompt to start Fitness workout
+**Drop-off** - Auto-generated reverse route, same Live Activity tracking
+**Completion** - Auto-pull workout data and photos, mark complete
+
+**Technologies:** WidgetKit, ActivityKit, CoreLocation geofencing, UserNotifications, HealthKit, PhotoKit
+
+### 4. Advanced Routing
+- Real road routing via MapKit Directions (travel time, actual routes)
+- Route caching (requires unified DailyHike)
+- Manual drag-to-reorder pickup sequence
+- Time window support ("Don't arrive before 2pm")
+
+**See:** Todo list for detailed implementation tasks
 
 ## Project Structure
 ```
