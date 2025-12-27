@@ -400,8 +400,9 @@ struct ModelTests {
         #expect(participation.isConfirmed == false)
     }
 
-    // MARK: - DailyHike.staleReason Tests
+    // MARK: - DailyHike.staleReason Tests (DISABLED - functionality removed in Phase 3)
 
+    /*
     @Test("DailyHike staleReason defaults to nil")
     func testDailyHikeStaleReasonDefaultsNil() {
         let hike = DailyHike(date: Date(), hikeNumber: 1)
@@ -508,4 +509,5 @@ struct ModelTests {
         #expect(StaleReason.routeNeedsOptimization.rawValue == "routeNeedsOptimization")
         #expect(StaleReason.scheduleChanged.rawValue == "scheduleChanged")
     }
+    */
 }

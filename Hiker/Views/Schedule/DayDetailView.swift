@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import MapKit
+import UniformTypeIdentifiers
 
 struct DayDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -24,6 +25,7 @@ struct DayDetailView: View {
 
     @State private var selectedHike: DailyHike?
     @State private var isEditing = false
+    @State private var draggedDogId: UUID?  // Shared across all hike cards for cross-hike dragging
 
     // Business logic manager
     private var scheduleManager: DayScheduleManager {
@@ -122,6 +124,10 @@ struct DayDetailView: View {
 
                 // Edit button (always visible for consistent layout, disabled when no pending hikes)
                 Button(isEditing ? "Done" : "Edit") {
+                    if isEditing {
+                        // Optimize all routes before exiting edit mode
+                        scheduleManager.optimizeAllRoutesForDay(currentDate, plannedHikes: plannedHikesForDay)
+                    }
                     withAnimation {
                         isEditing.toggle()
                     }
@@ -131,6 +137,13 @@ struct DayDetailView: View {
         }
         .onAppear {
             loadHikesIfNeeded()
+        }
+        .onDisappear {
+            if isEditing {
+                // Optimize routes before leaving
+                scheduleManager.optimizeAllRoutesForDay(currentDate, plannedHikes: plannedHikesForDay)
+                isEditing = false
+            }
         }
         .onChange(of: currentDate) {
             // Exit edit mode when changing days
@@ -193,10 +206,19 @@ struct DayDetailView: View {
                         currentDate: currentDate,
                         onMarkComplete: isFuture ? nil : { selectedHike = hike },  // Enable for past + today
                         onRemoveDog: isPast ? nil : { dogId in removeDog(dogId, from: hike) },     // Disable for past
-                        onRecalculateRoute: { recalculateRoute(hike) },
-                        onApplyScheduleChanges: { applyScheduleChanges(hike) },
-                        onResetToSchedule: { resetToSchedule() }
+                        onRegroupAll: { regroupAllHikes() },
+                        onSplitHike: { dogId in createSecondHike(with: dogId, from: hike) },
+                        onMoveDog: { dogId, targetHike in moveDog(dogId, to: targetHike) },
+                        onMoveDogToPosition: { dogId, targetHike, position in moveDog(dogId, to: targetHike, at: position) },
+                        onReorderDogs: { orderedIds in reorderDogs(in: hike, orderedIds: orderedIds) },
+                        draggedDogId: $draggedDogId,
+                        totalHikeCount: plannedHikesForDay.count
                     )
+                }
+
+                // Day-level action buttons (only in edit mode)
+                if isEditing && hasPendingHikes {
+                    dayLevelActions
                 }
             }
 
@@ -277,6 +299,44 @@ struct DayDetailView: View {
         .padding(.top, 16)
     }
 
+    // MARK: - Day-Level Actions
+
+    private var dayLevelActions: some View {
+        VStack(spacing: 12) {
+            Text("Day Actions")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+
+            // Regroup All Hikes - always visible in edit mode
+            Button {
+                regroupAllHikes()
+            } label: {
+                Label("Regroup All Hikes", systemImage: "square.grid.2x2")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.blue)
+            .padding(.horizontal)
+
+            // Reset Day to Schedule - always visible in edit mode
+            Button {
+                resetToSchedule()
+            } label: {
+                Label("Reset Day to Schedule", systemImage: "arrow.counterclockwise")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.orange)
+            .padding(.horizontal)
+        }
+        .padding(.top, 16)
+    }
+
     private var allScheduledDogIds: Set<UUID> {
         Set(plannedHikesForDay.flatMap { $0.participations.map { $0.dogId } })
     }
@@ -346,16 +406,52 @@ struct DayDetailView: View {
         scheduleManager.recalculateRoute(for: hike)
     }
 
-    private func applyScheduleChanges(_ hike: DailyHike) {
-        scheduleManager.applyScheduleChanges(for: hike)
-    }
-
     private func resetToSchedule() {
         scheduleManager.resetToSchedule(
             for: currentDate,
             existingHikes: hikesForDay,
             existingOverrides: Array(scheduleOverrides)
         )
+    }
+
+    private func regroupAllHikes() {
+        scheduleManager.regroupAllHikes(for: currentDate)
+    }
+
+    private func moveDog(_ dogId: UUID, to targetHike: DailyHike) {
+        // Find the source hike
+        guard let sourceHike = plannedHikesForDay.first(where: { hike in
+            hike.participations.contains { $0.dogId == dogId }
+        }) else { return }
+
+        // Don't move if already in target hike
+        guard sourceHike.id != targetHike.id else { return }
+
+        scheduleManager.moveDog(dogId, from: sourceHike, to: targetHike)
+    }
+
+    private func moveDog(_ dogId: UUID, to targetHike: DailyHike, at targetIndex: Int) {
+        // Find the source hike
+        guard let sourceHike = plannedHikesForDay.first(where: { hike in
+            hike.participations.contains { $0.dogId == dogId }
+        }) else { return }
+
+        // Don't move if already in target hike
+        guard sourceHike.id != targetHike.id else { return }
+
+        scheduleManager.moveDog(dogId, from: sourceHike, to: targetHike, at: targetIndex)
+    }
+
+    private func reorderDogs(in hike: DailyHike, orderedIds: [UUID]) {
+        scheduleManager.reorderDogs(in: hike, orderedDogIds: orderedIds)
+    }
+
+    private func splitHike(_ hike: DailyHike) {
+        scheduleManager.splitHike(hike)
+    }
+
+    private func createSecondHike(with dogId: UUID, from hike: DailyHike) {
+        scheduleManager.createSecondHike(with: dogId, from: hike)
     }
 }
 

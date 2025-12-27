@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import MapKit
+import UniformTypeIdentifiers
 
 /// Displays a planned/uncompleted hike with edit capabilities and stale warnings
 /// Supports edit mode with dog add/remove, route optimization, and schedule reset
@@ -19,44 +20,17 @@ struct PlannedHikeCard: View {
     let currentDate: Date
     let onMarkComplete: (() -> Void)?
     let onRemoveDog: ((UUID) -> Void)?
-    let onRecalculateRoute: (() -> Void)?        // Route-only optimization (for .routeNeedsOptimization)
-    let onApplyScheduleChanges: (() -> Void)?   // Sync dog list with schedule (for .scheduleChanged)
-    let onResetToSchedule: (() -> Void)?
-
-    // Confirmation action enum for simplified state management
-    private enum ConfirmationAction: Identifiable {
-        case recalculateRoute
-        case applyChanges
-        case resetToSchedule
-
-        var id: Self { self }
-
-        var title: String {
-            switch self {
-            case .recalculateRoute: return "Recalculate Route"
-            case .applyChanges: return "Apply Schedule Changes"
-            case .resetToSchedule: return "Reset to Schedule"
-            }
-        }
-
-        var message: String {
-            switch self {
-            case .recalculateRoute:
-                return "This will optimize the pickup route for the current dogs. The dog list will not change."
-            case .applyChanges:
-                return "This will update the dog list to match the current schedules and overrides, then optimize the route."
-            case .resetToSchedule:
-                return "This will remove all overrides for this day and regenerate the hike from the regular weekly schedule."
-            }
-        }
-
-        var isDestructive: Bool {
-            self == .resetToSchedule
-        }
-    }
+    let onRegroupAll: (() -> Void)?             // Regroup all hikes geographically
+    let onSplitHike: ((UUID) -> Void)?          // Create second hike with specified dog
+    let onMoveDog: ((UUID, DailyHike) -> Void)?  // Move dog to this hike from another
+    let onMoveDogToPosition: ((UUID, DailyHike, Int) -> Void)?  // Move dog to this hike at specific position
+    let onReorderDogs: (([UUID]) -> Void)?       // Reorder dogs within this hike
+    @Binding var draggedDogId: UUID?             // Shared drag state across all hike cards
+    let totalHikeCount: Int                       // Total number of hikes (for drop zone visibility)
 
     @State private var isExpanded = true
-    @State private var confirmationAction: ConfirmationAction?
+    @State private var dropTargetDogId: UUID?  // Dog being hovered over during drag
+    @State private var isCrossHikeDropTarget = false  // Hovering over this hike for cross-hike drop
 
     private var mapPosition: MapCameraPosition {
         if let firstCoordinate = hike.route.first {
@@ -70,15 +44,15 @@ struct PlannedHikeCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Stale warning banner (if schedule has changed)
-            if hike.isStale {
-                staleWarningBanner
+            // Over-capacity warning banner (if exceeds soft cap)
+            if hike.dogCount > hike.suggestedMaxDogs {
+                overCapacityWarningBanner
             }
 
             // Header with expand/collapse
             hikeHeader
                 .padding()
-                .background(hike.isStale ? Color.orange.opacity(0.1) : Color.blue.opacity(0.1))
+                .background(Color.blue.opacity(0.1))
 
             if isExpanded {
                 Divider()
@@ -114,148 +88,45 @@ struct PlannedHikeCard: View {
                     .tint(.green)
                     .padding()
                 }
-
-                // Edit mode action buttons
-                if isEditing {
-                    Divider()
-                    VStack(spacing: 12) {
-                        // Context-aware primary action button
-                        if hike.staleReason == .scheduleChanged {
-                            // Apply Changes - sync dog list with schedule
-                            Button {
-                                confirmationAction = .applyChanges
-                            } label: {
-                                Label("Apply Schedule Changes", systemImage: "arrow.triangle.2.circlepath")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.blue)
-                        } else {
-                            // Recalculate Route - re-optimize route with current dogs
-                            Button {
-                                confirmationAction = .recalculateRoute
-                            } label: {
-                                Label("Recalculate Route", systemImage: "arrow.triangle.2.circlepath")
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(.blue)
-                        }
-
-                        // Reset to Schedule - removes all overrides and regenerates from default
-                        Button {
-                            confirmationAction = .resetToSchedule
-                        } label: {
-                            Label("Reset to Schedule", systemImage: "arrow.counterclockwise")
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.orange)
-                    }
-                    .padding()
-                }
             }
         }
         .background(.background.secondary)
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
-        .confirmationDialog(
-            confirmationAction?.title ?? "",
-            isPresented: .constant(confirmationAction != nil),
-            titleVisibility: .visible,
-            presenting: confirmationAction
-        ) { action in
-            Button(action.title, role: action.isDestructive ? .destructive : nil) {
-                switch action {
-                case .recalculateRoute:
-                    onRecalculateRoute?()
-                case .applyChanges:
-                    onApplyScheduleChanges?()
-                case .resetToSchedule:
-                    onResetToSchedule?()
-                }
-                confirmationAction = nil
-            }
-            Button("Cancel", role: .cancel) {
-                confirmationAction = nil
-            }
-        } message: { action in
-            Text(action.message)
-        }
     }
 
-    // MARK: - Stale Warning Banner
+    // MARK: - Warning Banners
 
-    private var staleWarningBanner: some View {
+    private var overCapacityWarningBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(.yellow)
                 .imageScale(.large)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(staleBannerTitle)
+                Text("Large Hike")
                     .font(.subheadline)
                     .fontWeight(.semibold)
 
-                Text(staleBannerSubtitle)
+                Text("\(hike.dogCount) dogs exceeds recommended capacity of \(hike.suggestedMaxDogs)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            Button(staleBannerButtonText) {
-                if hike.staleReason == .scheduleChanged {
-                    confirmationAction = .applyChanges
-                } else {
-                    confirmationAction = .recalculateRoute
+            // Show the same "Regroup All Hikes" button from day-level actions
+            if let onRegroupAll = onRegroupAll {
+                Button("Regroup All") {
+                    onRegroupAll()
                 }
+                .buttonStyle(.bordered)
+                .tint(.yellow)
+                .controlSize(.small)
             }
-            .buttonStyle(.bordered)
-            .tint(.orange)
-            .controlSize(.small)
         }
         .padding()
-        .background(Color.orange.opacity(0.1))
-    }
-
-    private var staleBannerTitle: String {
-        switch hike.staleReason {
-        case .scheduleChanged:
-            return "Schedule Changed"
-        case .routeNeedsOptimization:
-            return "Route Outdated"
-        case nil:
-            return ""
-        }
-    }
-
-    private var staleBannerSubtitle: String {
-        switch hike.staleReason {
-        case .scheduleChanged:
-            return "Dog schedules have been modified."
-        case .routeNeedsOptimization:
-            return "Dogs were added or removed."
-        case nil:
-            return ""
-        }
-    }
-
-    private var staleBannerButtonText: String {
-        switch hike.staleReason {
-        case .scheduleChanged:
-            return "Apply Changes"
-        case .routeNeedsOptimization:
-            return "Recalculate"
-        case nil:
-            return ""
-        }
+        .background(Color.yellow.opacity(0.15))
     }
 
     // MARK: - Header
@@ -289,17 +160,62 @@ struct PlannedHikeCard: View {
         VStack(spacing: 0) {
             let participations = hike.orderedParticipations
             ForEach(Array(participations.enumerated()), id: \.element.id) { index, participation in
-                PlannedHikeDogRow(
-                    participation: participation,
-                    pickupOrder: index + 1,
-                    showAddedBadge: showAddedBadge(participation.dogId),
-                    isEditing: isEditing,
-                    onRemove: onRemoveDog
-                )
+                VStack(spacing: 0) {
+                    PlannedHikeDogRow(
+                        participation: participation,
+                        pickupOrder: index + 1,
+                        showAddedBadge: showAddedBadge(participation.dogId),
+                        isEditing: isEditing,
+                        onRemove: onRemoveDog,
+                        onStartDrag: {
+                            // Mark this dog as being dragged (called when drag handle is used)
+                            draggedDogId = participation.dogId
+                        }
+                    )
+                    .background(
+                        // Highlight background when hovering
+                        dropTargetDogId == participation.dogId
+                            ? Color.blue.opacity(0.1)
+                            : Color.clear
+                    )
+                    .padding(.top, dropTargetDogId == participation.dogId ? 50 : 0)  // Animated spacing
+                    .animation(.spring(response: 0.3), value: dropTargetDogId)
+                }
+                .onDrop(of: [.text], delegate: DogReorderDropDelegate(
+                    targetDogId: participation.dogId,
+                    draggedDogId: $draggedDogId,
+                    dropTargetDogId: $dropTargetDogId,
+                    hike: hike,
+                    onReorder: onReorderDogs,
+                    onMoveDog: onMoveDog,
+                    onMoveDogToPosition: onMoveDogToPosition
+                ))
 
                 if index < participations.count - 1 {
                     Divider()
                         .padding(.leading, 60)
+                }
+            }
+
+            // Drop zone for creating 2nd hike (only shows in edit mode when there's 1 hike and dragging)
+            if isEditing && totalHikeCount == 1 && draggedDogId != nil {
+                VStack(spacing: 0) {
+                    Divider()
+                        .padding(.leading, 60)
+
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+                        Text("Drop here to create a second hike")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                    }
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(isCrossHikeDropTarget ? Color.blue.opacity(0.2) : Color.blue.opacity(0.1))
+                }
+                .onDrop(of: [.text], isTargeted: $isCrossHikeDropTarget) { providers in
+                    handleCrossHikeDrop(providers)
                 }
             }
         }
@@ -362,5 +278,88 @@ struct PlannedHikeCard: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Drag and Drop Handlers
+
+    /// Handle drop to create second hike with the dragged dog (when there's only 1 hike)
+    private func handleCrossHikeDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+
+        provider.loadObject(ofClass: NSString.self) { object, error in
+            if let dogIdString = object as? String,
+               let dogId = UUID(uuidString: dogIdString) {
+                // Create second hike with this specific dog
+                DispatchQueue.main.async {
+                    onSplitHike?(dogId)
+                    // Clear drag state
+                    draggedDogId = nil
+                }
+            }
+        }
+
+        return true
+    }
+}
+
+/// Drop delegate for reordering dogs within a hike and cross-hike moves
+private struct DogReorderDropDelegate: DropDelegate {
+    let targetDogId: UUID
+    @Binding var draggedDogId: UUID?
+    @Binding var dropTargetDogId: UUID?
+    let hike: DailyHike
+    let onReorder: (([UUID]) -> Void)?
+    let onMoveDog: ((UUID, DailyHike) -> Void)?
+    let onMoveDogToPosition: ((UUID, DailyHike, Int) -> Void)?
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer { dropTargetDogId = nil }  // Clear hover state after drop
+
+        guard let draggedDogId = draggedDogId else { return false }
+
+        let draggedIsInThisHike = hike.participations.contains { $0.dogId == draggedDogId }
+
+        if draggedIsInThisHike {
+            // Same-hike reordering
+            var orderedDogIds = hike.orderedParticipations.map { $0.dogId }
+
+            guard let sourceIndex = orderedDogIds.firstIndex(of: draggedDogId),
+                  let destIndex = orderedDogIds.firstIndex(of: targetDogId) else {
+                return false
+            }
+
+            // Reorder the array
+            let movedDogId = orderedDogIds.remove(at: sourceIndex)
+            // After removing source, indices shift down if source was before destination
+            let adjustedDestIndex = sourceIndex < destIndex ? destIndex - 1 : destIndex
+            orderedDogIds.insert(movedDogId, at: adjustedDestIndex)
+
+            onReorder?(orderedDogIds)
+        } else {
+            // Cross-hike move: Move dog to this hike at the target position
+            guard let targetIndex = hike.orderedParticipations.firstIndex(where: { $0.dogId == targetDogId }) else {
+                return false
+            }
+
+            // Use positioned move to insert at the target position directly
+            onMoveDogToPosition?(draggedDogId, hike, targetIndex)
+        }
+
+        self.draggedDogId = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedDogId = draggedDogId else { return }
+
+        // Show feedback for both same-hike reordering AND cross-hike moves
+        // (but not if dropping on self)
+        if draggedDogId != targetDogId {
+            dropTargetDogId = targetDogId
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        dropTargetDogId = nil
     }
 }

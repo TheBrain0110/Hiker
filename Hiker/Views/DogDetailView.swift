@@ -224,9 +224,17 @@ struct EditableWeeklySchedule: View {
         }
         dog.regularSchedule = schedule
 
-        // Mark future hikes as stale since schedule changed
-        let manager = DailyHikeManager(modelContext: modelContext)
-        manager.markAffectedHikesStale(for: dog.id, after: Date())
+        // Regenerate all existing future uncompleted hikes
+        let today = Calendar.current.startOfDay(for: Date())
+        let descriptor = FetchDescriptor<DailyHike>(
+            predicate: #Predicate { $0.date >= today && $0.completedAt == nil }
+        )
+        guard let allFutureHikes = try? modelContext.fetch(descriptor) else { return }
+
+        let dayScheduleManager = DayScheduleManager(modelContext: modelContext)
+        for hike in allFutureHikes {
+            dayScheduleManager.applyScheduleChanges(for: hike)
+        }
     }
 }
 

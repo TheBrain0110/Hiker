@@ -9,14 +9,6 @@ import Foundation
 import SwiftData
 import CoreLocation
 
-/// Reason why a hike is marked as stale and needs attention
-enum StaleReason: String, Codable {
-    /// Dogs were manually added or removed - just need to re-optimize pickup route
-    case routeNeedsOptimization
-    /// A dog's regular schedule or override changed - need to sync dog list with schedule
-    case scheduleChanged
-}
-
 /// Unified persistent model for hike lifecycle: planned → customized → completed
 @Model
 final class DailyHike {
@@ -28,7 +20,6 @@ final class DailyHike {
 
     // Lifecycle state
     var completedAt: Date?                  // nil = planned, set = completed
-    var staleReasonRaw: String?             // Why hike needs attention (nil = not stale)
 
     // Cached route (from optimization)
     var routeLatitudes: [Double] = []
@@ -42,6 +33,12 @@ final class DailyHike {
     // Override tracking (for completed hikes - dogs that were removed via .isAbsent)
     var removedDogIds: [UUID] = []
     var removedDogNames: [String] = []
+
+    // Clustering metadata
+    var clusterMethod: String? = nil       // "auto_geographic", "manual", or nil (legacy)
+    var suggestedMaxDogs: Int = 8          // Soft capacity limit (configurable)
+    var wasAutoSplit: Bool = false         // Whether hike resulted from auto-clustering
+    var hasManualRouteOrder: Bool = false  // Whether user manually reordered dogs
 
     // Metadata
     var notes: String?
@@ -57,7 +54,6 @@ final class DailyHike {
         date: Date,
         hikeNumber: Int,
         completedAt: Date? = nil,
-        staleReason: StaleReason? = nil,
         routeLatitudes: [Double] = [],
         routeLongitudes: [Double] = [],
         totalDistance: Double = 0,
@@ -65,6 +61,10 @@ final class DailyHike {
         trailName: String? = nil,
         removedDogIds: [UUID] = [],
         removedDogNames: [String] = [],
+        clusterMethod: String? = nil,
+        suggestedMaxDogs: Int = 8,
+        wasAutoSplit: Bool = false,
+        hasManualRouteOrder: Bool = false,
         notes: String? = nil,
         createdAt: Date = Date(),
         lastModifiedAt: Date = Date()
@@ -73,7 +73,6 @@ final class DailyHike {
         self.date = Calendar.current.startOfDay(for: date)
         self.hikeNumber = hikeNumber
         self.completedAt = completedAt
-        self.staleReasonRaw = staleReason?.rawValue
         self.routeLatitudes = routeLatitudes
         self.routeLongitudes = routeLongitudes
         self.totalDistance = totalDistance
@@ -81,6 +80,10 @@ final class DailyHike {
         self.trailName = trailName
         self.removedDogIds = removedDogIds
         self.removedDogNames = removedDogNames
+        self.clusterMethod = clusterMethod
+        self.suggestedMaxDogs = suggestedMaxDogs
+        self.wasAutoSplit = wasAutoSplit
+        self.hasManualRouteOrder = hasManualRouteOrder
         self.notes = notes
         self.createdAt = createdAt
         self.lastModifiedAt = lastModifiedAt
@@ -109,17 +112,6 @@ final class DailyHike {
     /// Whether hike is still in planned state
     var isPlanned: Bool {
         completedAt == nil
-    }
-
-    /// Type-safe access to the stale reason
-    var staleReason: StaleReason? {
-        get { staleReasonRaw.flatMap { StaleReason(rawValue: $0) } }
-        set { staleReasonRaw = newValue?.rawValue }
-    }
-
-    /// Convenience property for backward compatibility
-    var isStale: Bool {
-        staleReason != nil
     }
 
     /// Number of dogs participating in this hike

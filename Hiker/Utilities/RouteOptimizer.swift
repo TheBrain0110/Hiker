@@ -88,7 +88,99 @@ struct RouteOptimizer {
         strategy: Strategy = .bruteForce
     ) -> OptimizedRoute {
         let pickups = dogs.map { Pickup(from: $0) }
-        return optimizeRoute(for: pickups, startingFrom: startLocation, strategy: strategy)
+
+        // Auto-select strategy based on count (brute-force for ≤8 dogs only)
+        let selectedStrategy: Strategy
+        if dogs.count > 8 {
+            selectedStrategy = .nearestNeighbor  // Fast approximation for large groups (9+ dogs)
+        } else {
+            selectedStrategy = strategy
+        }
+
+        return optimizeRoute(for: pickups, startingFrom: startLocation, strategy: selectedStrategy)
+    }
+
+    // MARK: - Multi-Hike Optimization
+
+    /// Result of multi-hike optimization analysis
+    struct MultiHikeOptimizationResult {
+        let currentDistance: CLLocationDistance
+        let potentialDistance: CLLocationDistance
+        let improvement: CLLocationDistance
+        let improvementPercent: Double
+        let suggestedGroups: [[Dog]]
+        let shouldRegroup: Bool  // Recommend if >10% improvement
+    }
+
+    /// Analyze multi-hike distribution and suggest regrouping if beneficial
+    ///
+    /// Compares current hike groupings with optimal geographic clustering.
+    /// Recommends regrouping if total distance could be reduced by >10%.
+    ///
+    /// - Parameters:
+    ///   - hikes: Current hikes for the day
+    ///   - allDogs: All participating dogs
+    /// - Returns: Analysis result with improvement metrics
+    static func optimizeMultiHikeDistribution(
+        hikes: [DailyHike],
+        allDogs: [Dog]
+    ) -> MultiHikeOptimizationResult {
+        // Calculate current total distance
+        let currentTotalDistance = hikes.reduce(0) { $0 + $1.totalDistance }
+
+        // Get all scheduled dogs from hikes
+        let scheduledDogIds = Set(hikes.flatMap { $0.participations.map { $0.dogId } })
+        let allScheduledDogs = allDogs.filter { scheduledDogIds.contains($0.id) }
+
+        // Re-cluster all dogs geographically
+        let clustered = HikeClusterer.clusterDogs(allScheduledDogs)
+
+        // Calculate potential total distance with optimal clustering
+        var potentialTotalDistance: Double = 0
+        for group in clustered.groups {
+            let route = optimizeRoute(for: group)
+            potentialTotalDistance += route.totalDistance
+        }
+
+        let improvement = currentTotalDistance - potentialTotalDistance
+        let improvementPercent = currentTotalDistance > 0 ? (improvement / currentTotalDistance) * 100 : 0
+
+        return MultiHikeOptimizationResult(
+            currentDistance: currentTotalDistance,
+            potentialDistance: potentialTotalDistance,
+            improvement: improvement,
+            improvementPercent: improvementPercent,
+            suggestedGroups: clustered.groups,
+            shouldRegroup: improvementPercent > 10  // Recommend if >10% improvement
+        )
+    }
+
+    /// Optimize route respecting manual ordering flag
+    ///
+    /// If manual ordering is enabled, calculates distance without changing order.
+    /// Otherwise, runs normal optimization.
+    ///
+    /// - Parameters:
+    ///   - dogs: Dogs to route
+    ///   - manuallyOrdered: Whether dogs have been manually ordered by user
+    /// - Returns: Optimized route (or current order with distance calculation)
+    static func optimizeRouteRespectingManualOrder(
+        for dogs: [Dog],
+        manuallyOrdered: Bool
+    ) -> OptimizedRoute {
+        if manuallyOrdered {
+            // Just calculate distance, don't reorder
+            let pickups = dogs.map { Pickup(from: $0) }
+            let distance = calculateTotalDistance(for: pickups, startingFrom: nil)
+            return OptimizedRoute(
+                pickups: pickups,
+                totalDistance: distance,
+                strategy: .bruteForce  // Mark as if optimized (it was, manually)
+            )
+        } else {
+            // Normal optimization
+            return optimizeRoute(for: dogs)
+        }
     }
 
     // MARK: - Private Algorithms
@@ -117,13 +209,13 @@ struct RouteOptimizer {
     }
 
     /// Brute-force optimization (tries all permutations, finds optimal route)
-    /// Efficient enough for ≤8 dogs (8! = 40,320 permutations)
+    /// Efficient enough for ≤8 dogs (8! = 40,320 permutations ~100ms)
     private static func bruteForceRoute(
         for pickups: [Pickup],
         startingFrom startLocation: CLLocationCoordinate2D?
     ) -> OptimizedRoute {
         // For larger groups, fall back to nearest-neighbor
-        if pickups.count > 10 {
+        if pickups.count > 8 {
             return nearestNeighborRoute(for: pickups, startingFrom: startLocation)
         }
 

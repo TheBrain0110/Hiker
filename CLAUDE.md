@@ -230,17 +230,18 @@ let orderedDogs = optimizedRoute.pickups.map { /* reorder dogs */ }
   - Navigation to DogDetailView if dog exists
   - Shows pickup order, name, address, rate, override badges
 - `DayDetailComponents/PlannedHikeCard.swift` - Collapsible planned hike with edit capabilities
-  - **Stale warning banner** with context-aware actions
-  - **Simplified state management:** Single `ConfirmationAction` enum for 3 dialogs
-  - **Context-Aware Actions:**
-    - "Recalculate Route" for `.routeNeedsOptimization` - re-optimizes pickup order, dog list unchanged
-    - "Apply Changes" for `.scheduleChanged` - syncs dog list with current schedule + overrides
-    - "Reset to Schedule" - always available, clears all overrides and regenerates from weekly pattern
+  - **Over-Capacity Banner:** Shows when hike exceeds 8 dogs (soft cap), displays "Regroup All" button
+  - **Drag & Drop Support:** Visual feedback with animations for within-hike and cross-hike dragging
+  - **Drop Zone:** Appears when there's 1 hike during drag - creates second hike with dragged dog
+  - **Day-Level Actions (Edit Mode):** "Regroup All Hikes" and "Reset Day to Schedule" buttons
   - Uses `PlannedHikeDogRow` for individual dogs
 - `DayDetailComponents/PlannedHikeDogRow.swift` - Individual dog row in planned hike
+  - **Drag Handle:** Visible only in edit mode (line.3.horizontal icon), enables drag functionality
+  - **Drag Preview:** Entire row appears in drag preview, not just the handle
   - **iOS Swipe Actions:** Swipe-to-delete (iOS only)
-  - **Edit Mode:** Remove button (all platforms)
+  - **Edit Mode:** Remove button and drag handle (all platforms)
   - Shows pickup order, name, address, rate, override badges
+  - **Navigation:** Tap row to navigate to DogDetailView (when dog still exists)
 
 **Detail Views:**
 - `ClientDetailView.swift` - Edit client info, manage their dogs
@@ -309,7 +310,7 @@ try? modelContext.delete(model: Dog.self)
 The project uses Swift Testing framework (`@Test`, `#expect`) for unit tests in `HikerTests/`.
 
 **Test Files:**
-- `ModelTests.swift` - SwiftData model computed properties (38 tests, includes StaleReason tests)
+- `ModelTests.swift` - SwiftData model computed properties (38 tests)
 - `DateExtensionTests.swift` - Date utility functions (25 tests)
 - `RouteOptimizerTests.swift` - Route optimization algorithms (12 tests)
 - `DayOfWeekTests.swift` - DayOfWeek enum (6 tests)
@@ -367,6 +368,33 @@ dog.regularSchedule = [.tuesday]
 4. **Wait for Apple fix** - May be resolved in future Xcode versions
 
 See detailed documentation in test file headers, especially `DailyHikeManagerTests.swift`.
+
+### UI Testing
+
+The project includes comprehensive UI tests in `HikerUITests/` using XCTest/XCUITest framework.
+
+**Test Files:**
+- `HikerUITests.swift` - Basic launch and performance tests
+- `DragAndDropUITests.swift` - Comprehensive drag-and-drop functionality tests (14 tests, December 2025)
+
+**DragAndDropUITests Coverage:**
+- **Edit Mode Behavior (3 tests):** Drag handles visibility, edit mode restrictions, auto-exit
+- **Within-Hike Reordering (2 tests):** Pickup order updates, visual feedback
+- **Cross-Hike Moving (1 test):** Dogs move between hikes with correct counts
+- **Drop Zone (3 tests):** Appears with 1 hike, disappears with 2, creates second hike
+- **Day-Level Actions (2 tests):** Regroup and reset buttons work correctly
+- **Edit Mode Lifecycle (3 tests):** Done/navigation exit behavior
+
+**Running UI Tests:**
+```bash
+# Run all UI tests
+xcodebuild test -scheme Hiker -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:HikerUITests
+
+# Run drag-and-drop tests only
+xcodebuild test -scheme Hiker -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:HikerUITests/DragAndDropUITests
+```
+
+**Note:** UI tests require sample data to be loaded. Tests use `UI-Testing` launch argument and `LoadSampleData` environment variable.
 
 ### Sample Data
 
@@ -533,12 +561,12 @@ NavigationStack {
   - Lazy persistence: Compute once on first access, then cache
   - `completedAt: Date?` field distinguishes planned (nil) from completed (set)
   - Supports user customizations (manual dog add/remove, trail selection) that persist
-  - Context-aware staleness tracking via `staleReason: StaleReason?`
+  - Routes optimize on-demand when exiting edit mode (no stale tracking needed)
 - **Benefits:** Single model, simpler architecture, caching enables expensive computations, preserves customizations
-- **Invalidation Strategy:** `staleReason` tracks WHY hike needs attention
-  - `.routeNeedsOptimization` - Manual add/remove, just re-optimize route
-  - `.scheduleChanged` - Dog schedule changed, sync dog list with schedule
-  - Context-aware UI shows appropriate action button
+- **Note:** Originally included `staleReason` tracking, but this was removed in December 2025 simplification
+  - Schedule changes now sync immediately instead of marking stale
+  - Route optimization deferred until edit mode exit
+  - Much simpler without complex invalidation state machine
 
 ### DayDetailView Refactoring (December 2025)
 - **Previous State:** Monolithic 1,226-line file with nested private structs and business logic
@@ -577,6 +605,46 @@ NavigationStack {
   - Ephemeral previews don't show overrides (by design - overrides trigger DailyHike creation)
   - Color coding required to distinguish preview vs. computed states
   - More complex view logic, but better performance and UX
+
+### Simplified Multi-Hike Management (December 2025)
+- **Previous State:** Complex stale tracking system with 3 flags, 8+ button instances, confusing state machine
+- **Problems Fixed:**
+  - CPU lockup from synchronous route optimization on every add/remove
+  - Clustering creating too many hikes (5 instead of 2 for 17 dogs)
+  - Data corruption from race conditions during sync optimization
+  - Stale tracking bugs with manual edits triggering wrong banners
+- **Solution:** Massive simplification
+  - **Hard cap at 2 hikes/day** - Production constraint enforced at clusterer level
+  - **Deferred route optimization** - Routes optimize once when exiting edit mode (no UI freeze)
+  - **Eliminated stale tracking entirely** - Removed `StaleReason` enum, all stale flags
+  - **Auto-sync schedule changes** - Weekly schedule/override changes update future hikes immediately
+  - **2 day-level buttons only** - "Regroup All Hikes" and "Reset Day to Schedule"
+  - **Auto-exit edit mode** - On navigation away or date change
+- **Benefits:**
+  - Instant responsiveness during editing (17 dogs added with no freeze)
+  - Simpler mental model (2 clear actions vs. 8 context-dependent buttons)
+  - No stale state bugs (eliminated entire category of issues)
+  - Cleaner UI (per-hike cards purely informational)
+
+### Drag & Drop Improvements (December 2025)
+- **Goal:** Intuitive drag-and-drop for reordering dogs and moving between hikes
+- **Implementation:**
+  - **Drag Handles** - Visible only in edit mode (line.3.horizontal icon)
+  - **Positioned Drops** - Dogs land exactly where animation shows, not at end of list
+  - **Cross-Hike Dragging** - Seamlessly drag between any hike with visual feedback
+  - **Drop Zone** - Appears when 1 hike exists during drag, creates second hike with specific dog
+  - **Visual Feedback** - Blue highlight and animated spacing show drop position
+  - **Whole Row Preview** - Entire row appears in drag preview, not just handle icon
+- **UX Benefits:**
+  - No accidental drags (handles required, only in edit mode)
+  - Clear visual affordance (handle indicates where to drag)
+  - Predictable behavior (drops land where shown)
+  - Flexible hike creation (drop zone for manual 2-hike split)
+- **Technical Implementation:**
+  - `PlannedHikeDogRow` - Drag handle with `.onDrag` on HStack for full row preview
+  - `DogReorderDropDelegate` - Handles both same-hike reordering and cross-hike moves
+  - `createSecondHike(with:from:)` - Method in DayScheduleManager for drop zone
+  - Shared `draggedDogId` state lifted to DayDetailView for cross-component coordination
 
 ## Future Enhancements
 
@@ -628,11 +696,11 @@ Hiker/
 │   ├── ScheduleOverride.swift
 │   ├── DayOfWeek.swift
 │   ├── HikingLocation.swift
-│   ├── DailyHike.swift      # Unified persistent model + StaleReason enum
+│   ├── DailyHike.swift      # Unified persistent model (planned/completed lifecycle)
 │   └── HikeParticipation.swift  # Per-dog participation tracking
 ├── Managers/
-│   ├── DailyHikeManager.swift  # Lazy-load, reset, staleness tracking
-│   └── DayScheduleManager.swift  # Schedule manipulation logic (Dec 2025)
+│   ├── DailyHikeManager.swift  # Lazy-load, reset, ephemeral preview generation
+│   └── DayScheduleManager.swift  # Schedule manipulation, drag-and-drop logic (Dec 2025)
 ├── Utilities/
 │   ├── RouteOptimizer.swift
 │   └── SampleData.swift

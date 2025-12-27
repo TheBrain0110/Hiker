@@ -111,9 +111,13 @@ struct DogScheduleCalendarView: View {
             modelContext.insert(override)
         }
 
-        // Mark affected hikes as stale since schedule changed
-        let manager = DailyHikeManager(modelContext: modelContext)
-        manager.markAffectedHikesStale(for: dog.id, after: normalizedDate)
+        // Regenerate hikes for this specific date only (overrides are date-specific)
+        let dailyHikeManager = DailyHikeManager(modelContext: modelContext)
+        let dayScheduleManager = DayScheduleManager(modelContext: modelContext)
+        let hikesForDate = dailyHikeManager.fetchExistingHikes(for: normalizedDate)
+        for hike in hikesForDate {
+            dayScheduleManager.applyScheduleChanges(for: hike)
+        }
 
         // Haptic feedback on iOS
         #if os(iOS)

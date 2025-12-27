@@ -504,8 +504,9 @@ struct DailyHikeManagerTests {
         #expect(dogNames == Set(["Buddy", "Max", "Zoe"]))
     }
 
-    // MARK: - Staleness Tracking Tests
+    // MARK: - Staleness Tracking Tests (DISABLED - functionality removed in Phase 3)
 
+    /*
     @Test("markAffectedHikesStale sets scheduleChanged reason on future uncompleted hikes")
     func testMarkAffectedHikesStaleMarksFutureHikes() throws {
         let context = try createTestContext()
@@ -652,6 +653,7 @@ struct DailyHikeManagerTests {
         #expect(freshHikes[0].staleReason == nil)
         #expect(freshHikes[0].isStale == false)
     }
+    */
 
     @Test("resetDailyHike regenerates with current schedule")
     func testResetDailyHikeUsesCurrentSchedule() throws {

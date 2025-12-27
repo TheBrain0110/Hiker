@@ -76,26 +76,6 @@ class DailyHikeManager {
         modelContext.delete(hike)
     }
 
-    /// Mark future DailyHikes as stale when a dog's schedule changes
-    func markAffectedHikesStale(for dogId: UUID, after date: Date) {
-        let normalizedDate = Calendar.current.startOfDay(for: date)
-
-        // Find all participations for this dog
-        let descriptor = FetchDescriptor<HikeParticipation>(
-            predicate: #Predicate { $0.dogId == dogId }
-        )
-        guard let participations = try? modelContext.fetch(descriptor) else { return }
-
-        for participation in participations {
-            if let hike = participation.dailyHike,
-               hike.date >= normalizedDate,
-               hike.completedAt == nil {
-                hike.staleReason = .scheduleChanged
-                hike.lastModifiedAt = Date()
-            }
-        }
-    }
-
     /// Fetch all DailyHikes for a date (without creating new ones)
     func fetchExistingHikes(for date: Date) -> [DailyHike] {
         let normalizedDate = Calendar.current.startOfDay(for: date)
@@ -164,6 +144,10 @@ class DailyHikeManager {
             overridesForDate.map { ($0.dogId, $0.type) }
         )
 
+        // Determine if this is from auto-clustering
+        let wasAutoSplit = dogs.count > 8
+        let clusterMethod = wasAutoSplit ? "auto_geographic" : nil
+
         // Create the hike
         let now = Date()
         let dailyHike = DailyHike(
@@ -174,6 +158,8 @@ class DailyHikeManager {
             totalDistance: optimizedRoute.totalDistance,
             selectedTrailId: suggestedTrail?.id,
             trailName: suggestedTrail?.name,
+            clusterMethod: clusterMethod,
+            wasAutoSplit: wasAutoSplit,
             createdAt: now,
             lastModifiedAt: now
         )
@@ -240,30 +226,25 @@ class DailyHikeManager {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    /// Group dogs into hikes (max 8 per hike, 2 hikes max)
+    /// Group dogs into hikes using geographic clustering
+    ///
+    /// Uses K-Means clustering for >8 dogs to create geographically-optimized groups.
+    /// Soft cap of 8 dogs per hike, but can exceed if needed (with warnings in UI).
+    ///
+    /// - Parameter dogs: Dogs to group
+    /// - Returns: Array of dog groups (one per hike)
     private func groupIntoHikes(_ dogs: [Dog]) -> [[Dog]] {
-        let maxDogsPerHike = 8
-        let maxHikes = 2
+        // Empty case
+        if dogs.isEmpty { return [] }
 
-        // If 8 or fewer dogs, one hike
-        if dogs.count <= maxDogsPerHike {
-            return dogs.isEmpty ? [] : [dogs]
+        // Single hike case (≤8 dogs)
+        if dogs.count <= 8 {
+            return [dogs]
         }
 
-        // If more than 8 but less than or equal to 16, split into two balanced hikes
-        if dogs.count <= maxDogsPerHike * maxHikes {
-            let midpoint = dogs.count / 2
-            let hike1 = Array(dogs[..<midpoint])
-            let hike2 = Array(dogs[midpoint...])
-            return [hike1, hike2]
-        }
-
-        // If more than 16, take first 16 and split evenly
-        let limitedDogs = Array(dogs.prefix(maxDogsPerHike * maxHikes))
-        let midpoint = limitedDogs.count / 2
-        let hike1 = Array(limitedDogs[..<midpoint])
-        let hike2 = Array(limitedDogs[midpoint...])
-        return [hike1, hike2]
+        // Multi-hike case: Use geographic clustering
+        let result = HikeClusterer.clusterDogs(dogs, maxDogsPerHike: 8, allowOverflow: true)
+        return result.groups
     }
 
     /// Suggest a hiking trail based on the last pickup location

@@ -10,7 +10,7 @@ import SwiftData
 
 /// Individual dog row in a planned hike card
 /// Shows pickup order, dog name, address, and payment rate
-/// Supports edit mode with remove button and iOS swipe-to-delete
+/// Supports edit mode with remove button, drag handle, and iOS swipe-to-delete
 struct PlannedHikeDogRow: View {
     @Environment(\.modelContext) private var modelContext
     let participation: HikeParticipation
@@ -18,6 +18,7 @@ struct PlannedHikeDogRow: View {
     let showAddedBadge: Bool
     let isEditing: Bool
     let onRemove: ((UUID) -> Void)?
+    let onStartDrag: (() -> Void)?  // Called when drag begins via drag handle
 
     // Look up the dog by ID to enable navigation
     private var dog: Dog? {
@@ -58,6 +59,13 @@ struct PlannedHikeDogRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
+            // Drag handle (only in edit mode)
+            if isEditing {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.secondary)
+                    .imageScale(.medium)
+            }
+
             // Pickup number badge
             ZStack {
                 Circle()
@@ -108,6 +116,14 @@ struct PlannedHikeDogRow: View {
             Text("$\(participation.rate as NSDecimalNumber)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+        .onDrag {
+            // Only allow drag in edit mode
+            guard isEditing else {
+                return NSItemProvider()
+            }
+            onStartDrag?()
+            return NSItemProvider(object: participation.dogId.uuidString as NSString)
         }
     }
 }
