@@ -36,9 +36,21 @@ struct ScheduleListView: View {
         Calendar.current.startOfDay(for: Date())
     }
 
+    // NOTE: iOS SwiftData Pagination Bug Workaround
+    // Using per-row .onAppear for pagination causes 100% CPU hang on iOS (not macOS).
+    // When multiple rows fire .onAppear simultaneously during initial render, it triggers
+    // a feedback loop between SwiftUI's state observation and SwiftData's @Query re-fetching.
+    // The workaround uses sentinel views at list edges that only fire when actually scrolled to.
+    // See CLAUDE.md "Known Issues" section for detailed documentation.
     var body: some View {
         ScrollViewReader { proxy in
             List {
+                // Top sentinel for loading past dates (iOS-safe pagination)
+                Color.clear
+                    .frame(height: 1)
+                    .listRowSeparator(.hidden)
+                    .onAppear { loadMorePastDates() }
+
                 ForEach(visibleDates, id: \.self) { date in
                     DayRow(
                         date: date,
@@ -52,11 +64,13 @@ struct ScheduleListView: View {
                         Calendar.current.isDate(date, inSameDayAs: today) ?
                         Color.blue.opacity(0.1) : nil
                     )
-                    .onAppear {
-                        // Load more dates when scrolling near edges
-                        checkAndLoadMoreDates(for: date)
-                    }
                 }
+
+                // Bottom sentinel for loading future dates (iOS-safe pagination)
+                Color.clear
+                    .frame(height: 1)
+                    .listRowSeparator(.hidden)
+                    .onAppear { loadMoreFutureDates() }
             }
             .listStyle(.plain)
             .onAppear {
@@ -101,24 +115,6 @@ struct ScheduleListView: View {
         visibleDates = dates
         earliestLoadedDate = dates.first
         latestLoadedDate = dates.last
-    }
-
-    private func checkAndLoadMoreDates(for date: Date) {
-        // Load more past dates when scrolling near the top (within 5 items)
-        if let earliest = earliestLoadedDate,
-           let index = visibleDates.firstIndex(of: date),
-           index < 5,
-           date == earliest {
-            loadMorePastDates()
-        }
-
-        // Load more future dates when scrolling near the bottom (within 5 items)
-        if let latest = latestLoadedDate,
-           let index = visibleDates.firstIndex(of: date),
-           index >= visibleDates.count - 5,
-           date == latest {
-            loadMoreFutureDates()
-        }
     }
 
     private func loadMorePastDates() {

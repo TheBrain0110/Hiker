@@ -37,8 +37,56 @@ struct HikerApp: App {
 
     var body: some Scene {
         WindowGroup {
+            // To debug app launch issues, replace ContentView() with DebugLaunchView()
             ContentView()
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+// MARK: - Debug Launch View
+// Useful for isolating iOS SwiftData/SwiftUI issues during app launch.
+// To use: Replace ContentView() with DebugLaunchView() in the WindowGroup above.
+
+struct DebugLaunchView: View {
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Debug Launch Screen")
+                    .font(.largeTitle)
+
+                Text("App launched successfully!")
+                    .foregroundStyle(.green)
+
+                Divider()
+
+                Group {
+                    NavigationLink("Test: ContentView (Full App)") {
+                        ContentView()
+                    }
+
+                    NavigationLink("Test: ScheduleView Only") {
+                        ScheduleView()
+                    }
+
+                    NavigationLink("Test: ScheduleListView (direct)") {
+                        ScheduleListView()
+                    }
+
+                    NavigationLink("Test: ClientsView Only") {
+                        ClientsView()
+                    }
+
+                    NavigationLink("Test: SettingsView Only") {
+                        SettingsView()
+                    }
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Debug")
+        }
     }
 }

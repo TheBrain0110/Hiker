@@ -646,6 +646,73 @@ NavigationStack {
   - `createSecondHike(with:from:)` - Method in DayScheduleManager for drop zone
   - Shared `draggedDogId` state lifted to DayDetailView for cross-component coordination
 
+## Known Issues
+
+### iOS SwiftData Pagination Bug (December 2025)
+
+**Problem:** `ScheduleListView` hangs with 100% CPU usage on iOS (works fine on macOS) when using per-row `.onAppear` for infinite scroll pagination.
+
+**Symptoms:**
+- App hangs on launch when ScheduleView loads
+- 100% CPU usage attributed to CoreData `NSSQLFetchRequestContext` calls
+- Profiler shows time spent in `completedHikesFor(date:)` filtering `@Query` results
+- Steadily increasing memory usage (suggesting object accumulation)
+- Only occurs on iOS/iOS Simulator, not macOS
+
+**Root Cause (Suspected):**
+When 22 rows fire `.onAppear` simultaneously during initial List render:
+1. Each `.onAppear` closure reads `@State` variables (`earliestLoadedDate`, `visibleDates`)
+2. On iOS, SwiftUI's dependency tracking may interpret this state access as requiring view body re-evaluation
+3. Body re-evaluation accesses `@Query` properties (`allDailyHikes`, `activeDogs`)
+4. SwiftData's `@Query` on iOS appears to have a bug where being accessed during certain render cycles triggers re-fetching from CoreData
+5. Re-fetches create new managed object instances (explaining memory increase) and trigger `@Query` observation
+6. Observation notification triggers another view update, creating a feedback loop
+
+**Why macOS Works:**
+Unknown - possibly different SwiftUI/SwiftData implementations, or faster execution prevents the race condition from manifesting.
+
+**Workaround (Implemented):**
+Instead of per-row `.onAppear` for pagination, use "sentinel" views at list edges:
+
+```swift
+// ❌ BROKEN on iOS - causes infinite loop
+ForEach(visibleDates, id: \.self) { date in
+    DayRow(...)
+        .onAppear { checkAndLoadMoreDates(for: date) }
+}
+
+// ✅ WORKS on iOS - sentinels only fire when scrolled to edge
+List {
+    Color.clear.frame(height: 1)  // Top sentinel
+        .onAppear { loadMorePastDates() }
+
+    ForEach(visibleDates, id: \.self) { date in
+        DayRow(...)
+    }
+
+    Color.clear.frame(height: 1)  // Bottom sentinel
+        .onAppear { loadMoreFutureDates() }
+}
+```
+
+**Why Sentinel Fix Works:**
+Sentinel views' `.onAppear` only fires when they become *actually visible* (user scrolls to the edge), not during initial render of the List content. This breaks the feedback loop because:
+- Initial render doesn't trigger sentinels (they're off-screen after scroll-to-today)
+- No `.onAppear` means no state reads during render
+- No feedback loop between state observation and `@Query` re-fetching
+
+**Debugging Tools:**
+A `DebugLaunchView` is available in `HikerApp.swift` for isolating iOS launch issues. To use:
+1. Replace `ContentView()` with `DebugLaunchView()` in the `WindowGroup`
+2. Tap individual views to identify which one causes hangs
+3. Use step-by-step testing to isolate specific queries or operations
+
+**Files Affected:**
+- `ScheduleListView.swift` - Uses sentinel-based pagination
+- `HikerApp.swift` - Contains `DebugLaunchView` for troubleshooting
+
+**Status:** Workaround implemented. Root cause not fully understood. May be fixed in future iOS/SwiftData versions.
+
 ## Future Enhancements
 
 **Status:** Active Development (December 2025)
