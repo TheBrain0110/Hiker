@@ -127,8 +127,8 @@ class DailyHikeManager {
             dogs.first { $0.id == pickup.id }
         }
 
-        // Build route coordinates
-        let routeCoordinates = orderedDogs.compactMap { $0.location }
+        // Build route coordinates (pickups only, trail added below)
+        var routeCoordinates = orderedDogs.compactMap { $0.location }
 
         // Suggest a trail
         let hikingLocations = fetchHikingLocations()
@@ -137,6 +137,11 @@ class DailyHikeManager {
             routeCoordinates: routeCoordinates,
             hikingLocations: hikingLocations
         )
+
+        // Append trail coordinate as final destination if trail was suggested
+        if let trail = suggestedTrail {
+            routeCoordinates.append(trail.coordinate)
+        }
 
         // Determine override status for each dog
         let overridesForDate = fetchOverrides(for: date)

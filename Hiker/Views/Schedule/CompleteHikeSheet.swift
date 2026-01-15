@@ -163,11 +163,27 @@ struct CompleteHikeSheet: View {
 
         // Update the DailyHike to mark as completed
         hike.completedAt = Date()
+
+        // Update trail selection
+        let trailChanged = hike.selectedTrailId != selectedTrail?.id
         hike.selectedTrailId = selectedTrail?.id
         hike.trailName = selectedTrail?.name
         hike.notes = notes.isEmpty ? nil : notes
         hike.removedDogIds = removedDogIds
         hike.removedDogNames = removedDogNames
+
+        // If trail changed, update route coordinates
+        if trailChanged {
+            // Rebuild route: keep pickups, replace/add trail coordinate
+            var updatedRoute = Array(hike.route.prefix(hike.participations.count))
+
+            if let trail = selectedTrail {
+                updatedRoute.append(trail.coordinate)
+            }
+
+            hike.route = updatedRoute
+        }
+
         hike.lastModifiedAt = Date()
 
         // Update participation records for attendance confirmation

@@ -47,6 +47,40 @@ xcodebuild test -scheme Hiker -destination 'platform=iOS Simulator,name=iPhone 1
 - Press Cmd+R to build and run
 - Use Cmd+U to run tests
 
+## Recent Development (In Progress)
+
+**Date:** 2026-01-15
+**Status:** Implementation complete, needs testing
+
+### Trail Destinations in Routes
+- **Implemented:** Routes now include hiking trail location as final destination after all pickups
+- **Route Structure:** `[pickup1, pickup2, ..., pickupN, trail]`
+- **Detection:** If `route.count > participations.count`, last coordinate is trail
+- **Files Modified:**
+  - `DailyHikeManager.swift` - Appends trail when creating new hikes
+  - `DayScheduleManager.swift` - Added `fetchHikingLocations()` and `suggestTrail()` helpers
+  - All route methods updated: `recalculateRoute()`, `reorderDogs()`, `regroupAllHikes()`, `splitHike()`, `createSecondHike()`
+  - `CompleteHikeSheet.swift` - Updates route when trail changes during completion
+
+### Map Display Improvements
+- **Square Aspect Ratio:** Maps use `.aspectRatio(1, contentMode: .fit)` for responsive sizing
+- **Auto-Fit Camera:** Bounding box calculation with 20% padding shows entire route including trail
+- **Platform-Appropriate Gestures:**
+  - iOS: 2-finger pan + pinch-to-zoom (prevents single-finger scroll conflicts)
+  - macOS: Click-drag pan + Cmd+scroll zoom
+  - Implemented via `Map(initialPosition:, interactionModes: [.pan, .zoom])`
+- **Trail Marker:** Orange star icon with trail name label distinguishes destination from numbered pickup circles
+- **Files Modified:**
+  - `PlannedHikeCard.swift` - Square map, auto-fit, trail marker, platform gestures
+  - `CompletedHikeCard.swift` - Same improvements for completed hikes
+
+### Next Steps
+- [ ] Test on physical iOS device (2-finger gestures)
+- [ ] Test on macOS (click-drag, Cmd+scroll)
+- [ ] Verify backward compatibility with existing routes (no trail coordinate)
+- [ ] Test trail changes during hike completion
+- [ ] Test all route modification operations (drag-reorder, split, regroup)
+
 ## Core Architecture
 
 ### Data Models (SwiftData)

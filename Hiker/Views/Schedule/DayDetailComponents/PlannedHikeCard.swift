@@ -33,13 +33,30 @@ struct PlannedHikeCard: View {
     @State private var isCrossHikeDropTarget = false  // Hovering over this hike for cross-hike drop
 
     private var mapPosition: MapCameraPosition {
-        if let firstCoordinate = hike.route.first {
-            return .region(MKCoordinateRegion(
-                center: firstCoordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-            ))
-        }
-        return .automatic
+        guard !hike.route.isEmpty else { return .automatic }
+
+        // Calculate bounding box for all route points
+        let latitudes = hike.route.map { $0.latitude }
+        let longitudes = hike.route.map { $0.longitude }
+
+        let minLat = latitudes.min() ?? 0
+        let maxLat = latitudes.max() ?? 0
+        let minLon = longitudes.min() ?? 0
+        let maxLon = longitudes.max() ?? 0
+
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLon + maxLon) / 2
+        )
+
+        // Add 20% padding to ensure all markers are visible
+        let latDelta = max((maxLat - minLat) * 1.2, 0.01)
+        let lonDelta = max((maxLon - minLon) * 1.2, 0.01)
+
+        return .region(MKCoordinateRegion(
+            center: center,
+            span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+        ))
     }
 
     var body: some View {
@@ -65,7 +82,7 @@ struct PlannedHikeCard: View {
                 if !hike.route.isEmpty {
                     Divider()
                     routeMap
-                        .frame(height: 200)
+                        .aspectRatio(1, contentMode: .fit)  // Square: height = width
                 }
 
                 // Trail Info
@@ -232,9 +249,14 @@ struct PlannedHikeCard: View {
     // MARK: - Map
 
     private var routeMap: some View {
-        Map(initialPosition: mapPosition) {
+        Map(initialPosition: mapPosition, interactionModes: [.pan, .zoom]) {
+            // Determine if last coordinate is trail
+            let hasTrailDestination = hike.route.count > hike.participations.count
+            let pickupCount = hasTrailDestination ? hike.route.count - 1 : hike.route.count
+
             // Show pickup locations as numbered markers
-            ForEach(Array(hike.route.enumerated()), id: \.offset) { index, coordinate in
+            ForEach(0..<pickupCount, id: \.self) { index in
+                let coordinate = hike.route[index]
                 Annotation("\(index + 1)", coordinate: coordinate) {
                     ZStack {
                         Circle()
@@ -248,14 +270,33 @@ struct PlannedHikeCard: View {
                 }
             }
 
-            // Draw route line
+            // Show trail destination marker (if exists)
+            if hasTrailDestination, let trailCoordinate = hike.route.last {
+                Annotation("Trail", coordinate: trailCoordinate) {
+                    VStack(spacing: 2) {
+                        Image(systemName: "star.fill")
+                            .font(.title2)
+                            .foregroundStyle(.orange)
+                        Text(hike.trailName ?? "Trail")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    }
+                    .padding(6)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+                }
+            }
+
+            // Draw route line (includes trail destination)
             if hike.route.count > 1 {
                 MapPolyline(coordinates: hike.route)
                     .stroke(.blue, lineWidth: 3)
             }
         }
         .mapStyle(.standard)
-        .allowsHitTesting(false)
     }
 
     // MARK: - Trail Suggestion

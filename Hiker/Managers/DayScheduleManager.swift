@@ -144,10 +144,21 @@ class DayScheduleManager {
             }
         }
 
-        // Update route coordinates
-        let routeCoordinates = optimizedRoute.pickups.compactMap { pickup in
+        // Update route coordinates (pickups + trail)
+        var routeCoordinates = optimizedRoute.pickups.compactMap { pickup in
             dogs.first { $0.id == pickup.id }?.location
         }
+
+        // Append trail coordinate if trail is selected
+        if let trailId = hike.selectedTrailId {
+            let descriptor = FetchDescriptor<HikingLocation>(
+                predicate: #Predicate { $0.id == trailId }
+            )
+            if let trail = try? modelContext.fetch(descriptor).first {
+                routeCoordinates.append(trail.coordinate)
+            }
+        }
+
         hike.route = routeCoordinates
         hike.totalDistance = optimizedRoute.totalDistance
         hike.lastModifiedAt = Date()
@@ -341,9 +352,21 @@ class DayScheduleManager {
                 for: orderedDogs,
                 manuallyOrdered: true
             )
-            hike.route = route.pickups.compactMap { pickup in
+            var routeCoordinates = route.pickups.compactMap { pickup in
                 orderedDogs.first { $0.id == pickup.id }?.location
             }
+
+            // Append trail coordinate if trail is selected
+            if let trailId = hike.selectedTrailId {
+                let descriptor = FetchDescriptor<HikingLocation>(
+                    predicate: #Predicate { $0.id == trailId }
+                )
+                if let trail = try? modelContext.fetch(descriptor).first {
+                    routeCoordinates.append(trail.coordinate)
+                }
+            }
+
+            hike.route = routeCoordinates
             hike.totalDistance = route.totalDistance
         }
 
@@ -417,12 +440,30 @@ class DayScheduleManager {
                 group.first { $0.id == pickup.id }
             }
 
+            // Build route with pickups
+            var routeCoordinates = orderedDogs.compactMap { $0.location }
+
+            // Suggest trail for this group
+            let hikingLocations = fetchHikingLocations()
+            let suggestedTrail = suggestTrail(
+                for: orderedDogs,
+                routeCoordinates: routeCoordinates,
+                hikingLocations: hikingLocations
+            )
+
+            // Append trail coordinate if suggested
+            if let trail = suggestedTrail {
+                routeCoordinates.append(trail.coordinate)
+            }
+
             let newHike = DailyHike(
                 date: normalizedDate,
                 hikeNumber: index + 1,
-                routeLatitudes: orderedDogs.compactMap { $0.location?.latitude },
-                routeLongitudes: orderedDogs.compactMap { $0.location?.longitude },
+                routeLatitudes: routeCoordinates.map { $0.latitude },
+                routeLongitudes: routeCoordinates.map { $0.longitude },
                 totalDistance: optimizedRoute.totalDistance,
+                selectedTrailId: suggestedTrail?.id,
+                trailName: suggestedTrail?.name,
                 clusterMethod: clustered.method,
                 wasAutoSplit: true,
                 createdAt: Date(),
@@ -516,9 +557,21 @@ class DayScheduleManager {
             participation.dailyHike = hike
         }
 
-        hike.route = keepOptimized.pickups.compactMap { pickup in
+        var keepRoute = keepOptimized.pickups.compactMap { pickup in
             keepGroup.first { $0.id == pickup.id }?.location
         }
+
+        // Append trail for keep group (use original trail or suggest new one)
+        if let trailId = hike.selectedTrailId {
+            let descriptor = FetchDescriptor<HikingLocation>(
+                predicate: #Predicate { $0.id == trailId }
+            )
+            if let trail = try? modelContext.fetch(descriptor).first {
+                keepRoute.append(trail.coordinate)
+            }
+        }
+
+        hike.route = keepRoute
         hike.totalDistance = keepOptimized.totalDistance
         hike.lastModifiedAt = Date()
 
@@ -539,12 +592,30 @@ class DayScheduleManager {
             moveGroup.first { $0.id == pickup.id }
         }
 
+        // Build route with pickups
+        var moveRoute = moveOrdered.compactMap { $0.location }
+
+        // Suggest trail for new hike
+        let hikingLocations = fetchHikingLocations()
+        let suggestedTrail = suggestTrail(
+            for: moveOrdered,
+            routeCoordinates: moveRoute,
+            hikingLocations: hikingLocations
+        )
+
+        // Append trail coordinate if suggested
+        if let trail = suggestedTrail {
+            moveRoute.append(trail.coordinate)
+        }
+
         let newHike = DailyHike(
             date: normalizedDate,
             hikeNumber: nextHikeNumber,
-            routeLatitudes: moveOrdered.compactMap { $0.location?.latitude },
-            routeLongitudes: moveOrdered.compactMap { $0.location?.longitude },
+            routeLatitudes: moveRoute.map { $0.latitude },
+            routeLongitudes: moveRoute.map { $0.longitude },
             totalDistance: moveOptimized.totalDistance,
+            selectedTrailId: suggestedTrail?.id,
+            trailName: suggestedTrail?.name,
             clusterMethod: "auto_geographic",
             wasAutoSplit: true,
             createdAt: Date(),
@@ -591,12 +662,36 @@ class DayScheduleManager {
         // Create new second hike with just this dog
         let normalizedDate = Calendar.current.startOfDay(for: sourceHike.date)
 
+        // Build route with single pickup
+        var routeCoordinates: [CLLocationCoordinate2D] = []
+        if let dogLocation = dog.location {
+            routeCoordinates.append(dogLocation)
+        }
+
+        // Suggest trail for single-dog hike
+        let hikingLocations = fetchHikingLocations()
+        let suggestedTrail: HikingLocation?
+        if !routeCoordinates.isEmpty {
+            suggestedTrail = suggestTrail(
+                for: [dog],
+                routeCoordinates: routeCoordinates,
+                hikingLocations: hikingLocations
+            )
+            if let trail = suggestedTrail {
+                routeCoordinates.append(trail.coordinate)
+            }
+        } else {
+            suggestedTrail = nil
+        }
+
         let newHike = DailyHike(
             date: normalizedDate,
             hikeNumber: 2,  // Always hike number 2 (since we're creating from the only hike)
-            routeLatitudes: dog.location.map { [$0.latitude] } ?? [],
-            routeLongitudes: dog.location.map { [$0.longitude] } ?? [],
+            routeLatitudes: routeCoordinates.map { $0.latitude },
+            routeLongitudes: routeCoordinates.map { $0.longitude },
             totalDistance: 0,  // Single pickup, no distance
+            selectedTrailId: suggestedTrail?.id,
+            trailName: suggestedTrail?.name,
             clusterMethod: "Manual split",
             wasAutoSplit: false,
             createdAt: Date(),
@@ -615,5 +710,45 @@ class DayScheduleManager {
             rate: dog.paymentRate
         )
         participation.dailyHike = newHike
+    }
+
+    // MARK: - Helper Methods
+
+    /// Fetch all active hiking locations
+    private func fetchHikingLocations() -> [HikingLocation] {
+        let descriptor = FetchDescriptor<HikingLocation>(
+            predicate: #Predicate { $0.isActive == true },
+            sortBy: [SortDescriptor(\.name)]
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    /// Suggest a hiking trail based on the last pickup location
+    private func suggestTrail(
+        for dogs: [Dog],
+        routeCoordinates: [CLLocationCoordinate2D],
+        hikingLocations: [HikingLocation]
+    ) -> HikingLocation? {
+        guard !hikingLocations.isEmpty else { return nil }
+        guard let lastPickup = routeCoordinates.last else {
+            return hikingLocations.first
+        }
+
+        // Find the closest trail to the last pickup
+        let lastLocation = CLLocation(
+            latitude: lastPickup.latitude,
+            longitude: lastPickup.longitude
+        )
+
+        let trailWithDistances = hikingLocations.map { trail -> (trail: HikingLocation, distance: CLLocationDistance) in
+            let trailLocation = CLLocation(
+                latitude: trail.latitude,
+                longitude: trail.longitude
+            )
+            let distance = lastLocation.distance(from: trailLocation)
+            return (trail, distance)
+        }
+
+        return trailWithDistances.min(by: { $0.distance < $1.distance })?.trail
     }
 }
